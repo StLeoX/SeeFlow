@@ -1,0 +1,49 @@
+run:
+  go: '1.21'
+  timeout: 3m  # default is 1m
+linters:
+  disable-all: true
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+#    - contextcheck
+    - decorder
+    - dupword
+    - durationcheck
+    - errchkjson
+    - errname
+    - gocheckcompilerdirectives
+#    - gocritic
+#    - goerr113
+    - gofmt
+    - goheader
+    - goimports
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - govet
+    - importas
+    - ineffassign
+    - interfacebloat
+    - makezero
+    - mirror
+    - misspell
+    - musttag
+    - nakedret
+    - nilerr
+    - noctx
+    - nosprintfhostport
+    - predeclared
+    - reassign
+    - revive
+    - staticcheck
+    - tagalign
+    - tenv
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - wastedassign

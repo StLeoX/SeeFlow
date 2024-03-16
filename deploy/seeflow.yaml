@@ -1,0 +1,25 @@
+# setup SeeFlow
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seeflow
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seeflow
+      name: seeflow
+  template:
+    metadata:
+      labels:
+        app: seeflow
+        name: seeflow
+    spec:
+      containers:
+        - env:
+            - name: HUBBLE_ENDPOINT
+              value: hubble-relay.kube-system.svc.cluster.local:4245
+          image: registry.cn-heyuan.aliyuncs.com/obser/seeflow:latest
+          imagePullPolicy: IfNotPresent

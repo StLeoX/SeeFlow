@@ -1,0 +1,103 @@
+# 参考示例 https://github.com/grafana/tempo/tree/main/example/helm
+
+# setup Tempo
+---
+global:
+  clusterDomain: 'cluster.local'
+gateway:
+  enabled: true
+minio:
+  enabled: true
+storage:
+  trace:
+    backend: s3
+    s3:
+      access_key: 'grafana-tempo'
+      secret_key: 'supersecret'
+      bucket: 'tempo-traces'
+      endpoint: 'tempo-minio:9000'
+      insecure: true
+traces:
+  otlp:
+    http:
+      enabled: true
+    grpc:
+      enabled: true
+distributor:
+  config:
+    log_received_spans:
+      enabled: true
+
+# setup Grafana
+---
+env:
+  GF_AUTH_ANONYMOUS_ENABLED: true
+  GF_AUTH_ANONYMOUS_ORG_ROLE: 'Admin'
+  GF_AUTH_DISABLE_LOGIN_FORM: true
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+
+    datasources:
+      - name: Tempo
+        type: tempo
+        access: proxy
+        orgId: 1
+        url: http://tempo-gateway
+        basicAuth: false
+        isDefault: true
+        version: 1
+        editable: false
+        apiVersion: 1
+        uid: tempo
+
+# config Grafana as Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: 'false'
+  name: ingress
+  namespace: default
+spec:
+  rules:
+    - http:
+        paths:
+          - backend:
+              service:
+                name: grafana
+                port:
+                  number: 80
+            path: /
+            pathType: Prefix
+
+# setup XK6 Mocker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xk6-tracing
+  namespace: default
+spec:
+  minReadySeconds: 10
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: xk6-tracing
+      name: xk6-tracing
+  template:
+    metadata:
+      labels:
+        app: xk6-tracing
+        name: xk6-tracing
+    spec:
+      containers:
+        - env:
+            - name: ENDPOINT
+              value: tempo-distributor:4317
+          image: ghcr.io/grafana/xk6-client-tracing:v0.0.2
+          imagePullPolicy: IfNotPresent
+          name: xk6-tracing
