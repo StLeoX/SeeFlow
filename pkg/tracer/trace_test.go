@@ -10,7 +10,7 @@ import (
 
 func TestTracer_BasicAssemble_2(t *testing.T) {
 	// 测试 BasicAssemble，首先要确定 Debug 开启
-	r.Equal(t, true, config.Debug)
+	config.Debug = true
 
 	// 服务拓补图：foo <-> bar <-> loo
 	// 输入：依次进入 <bar, loo>, <foo, bar>
@@ -33,7 +33,7 @@ func TestTracer_BasicAssemble_2(t *testing.T) {
 }
 
 func TestTracer_BasicAssemble_3_1(t *testing.T) {
-	r.Equal(t, true, config.Debug)
+	config.Debug = true
 
 	// 服务拓补图：foo <-> bar <-> loo
 	//                       <-> baz
@@ -53,7 +53,7 @@ func TestTracer_BasicAssemble_3_1(t *testing.T) {
 }
 
 func TestTracer_BasicAssemble_3_2(t *testing.T) {
-	r.Equal(t, true, config.Debug)
+	config.Debug = true
 
 	// 服务拓补图：foo <-> bar <-> loo <-> baz
 	// 输入：依次进入 <bar, baz>, <bar, loo>, <foo, bar>
@@ -72,7 +72,7 @@ func TestTracer_BasicAssemble_3_2(t *testing.T) {
 }
 
 func TestTracer_BasicAssemble_4_1(t *testing.T) {
-	r.Equal(t, true, config.Debug)
+	config.Debug = true
 
 	// 验证 parentCtx 确实起作用了，类似于 3_1 但是之上再有一个 span
 

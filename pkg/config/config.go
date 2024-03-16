@@ -12,15 +12,17 @@ const (
 	NameWorld   = "world"
 )
 
+// for root
 var (
-	// tracer 配置
+	Debug = false
+)
+
+// for pkg tracer
+var (
 	MaxNumFlow       = 1024
 	MaxNumTracer     = 16
 	MaxSpanTimestamp = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	MinSpanTimestamp = time.Unix(0, 0).UTC()
-	// 项目运行配置
-	// todo: 通过 viper 配置命令行
-	Debug = false
 )
 
 var LoggerRawL7Flow *logrus.Logger
