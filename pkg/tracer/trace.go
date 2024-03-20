@@ -30,9 +30,9 @@ func (t *Tracer) BasicAssemble(amCtx context.Context) error {
 		return nil
 	}
 
-	// 按 startTime 升序排序
+	// 按 StartTime 升序排序
 	sort.Slice(t.bufPreSpan, func(i, j int) bool {
-		return t.bufPreSpan[i].startTime.Before(t.bufPreSpan[j].startTime)
+		return t.bufPreSpan[i].StartTime.Before(t.bufPreSpan[j].StartTime)
 	})
 
 	// 遍历进行 parent 关联
@@ -41,7 +41,7 @@ func (t *Tracer) BasicAssemble(amCtx context.Context) error {
 		var curSpanID tr.SpanID
 		var parentCtx context.Context
 		// 检查缓存
-		if hitPostSpan, hit := t.mapService[preSpan.srcPod]; !hit {
+		if hitPostSpan, hit := t.mapService[preSpan.SrcPod]; !hit {
 			// 缺失，构建 tr.Span
 			// 缺失的情况应该仅限于 Root Span
 			curPreSpan = preSpan
@@ -55,7 +55,7 @@ func (t *Tracer) BasicAssemble(amCtx context.Context) error {
 		}
 
 		// 命中或缺失，Span 都要入表
-		t.mapService[preSpan.destPod] = &PostSpan{
+		t.mapService[preSpan.DestPod] = &PostSpan{
 			preSpan: curPreSpan,
 			ctx:     parentCtx,
 			spanID:  curSpanID,
@@ -66,14 +66,14 @@ func (t *Tracer) BasicAssemble(amCtx context.Context) error {
 
 func (t *Tracer) buildTrSpan(parentCtx context.Context, childSpan *PreSpan, parentSpanID tr.SpanID) (context.Context, tr.SpanID) {
 	startOpts := make([]tr.SpanStartOption, 0)
-	startOpts = append(startOpts, tr.WithTimestamp(childSpan.startTime))
-	startOpts = append(startOpts, tr.WithAttributes(attr.String("src", childSpan.srcPod)))
-	startOpts = append(startOpts, tr.WithAttributes(attr.String("dest", childSpan.destPod)))
+	startOpts = append(startOpts, tr.WithTimestamp(childSpan.StartTime))
+	startOpts = append(startOpts, tr.WithAttributes(attr.String("src", childSpan.SrcPod)))
+	startOpts = append(startOpts, tr.WithAttributes(attr.String("dest", childSpan.DestPod)))
 
 	traceID, err := convertTraceID(t.traceID)
 	if err != nil {
 		logrus.Warn(err)
-	} // traceID is zero
+	} // TraceID is zero
 
 	// 暂时不知 TraceFlags 硬编码为 0x01 的后果，所以加个判断去除无效 SpanID
 	traceFlags := tr.TraceFlags(0x01)
@@ -89,19 +89,19 @@ func (t *Tracer) buildTrSpan(parentCtx context.Context, childSpan *PreSpan, pare
 
 	parentCtx = tr.ContextWithSpanContext(parentCtx, parentSpanCtx)
 	ctx, span := t.tracer.Start(parentCtx, structureSpanName(childSpan), startOpts...)
-	span.End(tr.WithTimestamp(childSpan.endTime))
+	span.End(tr.WithTimestamp(childSpan.EndTime))
 
 	if config.Debug {
 		// try to convert to sdktr.ReadOnlySpan
 		switch span := span.(type) {
 		case sdktr.ReadOnlySpan:
-			logrus.Debugf("span name: %s, span id: %s, parent span id: %s",
+			logrus.Debugf("span name: %s, span ID: %s, parent span ID: %s",
 				span.Name(), span.SpanContext().SpanID(), span.Parent().SpanID())
 			t.debMapTraceID[span.Name()] = span.SpanContext().TraceID().String()
 			t.debMapSpanID[span.Name()] = span.SpanContext().SpanID().String()
 			t.debMapParent[span.Name()] = span.Parent().SpanID().String()
 		default:
-			logrus.Debugf("can't convert to ReadOnlySpan, span id: %s", span.SpanContext().SpanID())
+			logrus.Debugf("can't convert to ReadOnlySpan, span ID: %s", span.SpanContext().SpanID())
 		}
 	}
 

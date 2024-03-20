@@ -7,6 +7,7 @@ import (
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/stleox/seeflow/pkg/config"
 	sdktr "go.opentelemetry.io/otel/sdk/trace"
 	"sync"
@@ -31,18 +32,27 @@ type TracerManager struct {
 	ShutdownCtx context.Context
 
 	tracerProvider *sdktr.TracerProvider
+
+	olap *Olap
 }
 
-func NewTracerManager() *TracerManager {
+func NewTracerManager(vp *viper.Viper) *TracerManager {
 	var tm TracerManager
 	tm.ShutdownCtx = context.Background()
 	tm.tracers, _ = lru.New[string, *Tracer](config.MaxNumTracer)
 	tm.bufFlow, _ = lru.New[string, *observerpb.Flow](config.MaxNumFlow)
+
+	if vp == nil {
+		tm.olap = nil // under testing
+	}
+	tm.olap = NewOlap(vp)
+
 	return &tm
 }
 
 func (tm *TracerManager) addTracer(traceID string) *Tracer {
 	var a Tracer
+	a.manager = tm
 	a.number = int(tm.numTracer.Load())
 	tm.numTracer.Add(1)
 	a.traceID = traceID

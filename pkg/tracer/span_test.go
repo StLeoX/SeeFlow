@@ -27,8 +27,8 @@ func TestTracer_BuildPreSpan_1(t *testing.T) {
 	r.NotNil(t, span)
 
 	r.Equal(t, uuid1, span.ID)
-	r.Equal(t, time.Unix(1, 0).UTC(), span.startTime)
-	r.Equal(t, time.Unix(10, 0).UTC(), span.endTime)
+	r.Equal(t, time.Unix(1, 0).UTC(), span.StartTime)
+	r.Equal(t, time.Unix(10, 0).UTC(), span.EndTime)
 
 }
 
@@ -47,8 +47,8 @@ func TestTracer_BuildPreSpan_2(t *testing.T) {
 	r.NotNil(t, span)
 
 	r.Equal(t, uuid2, span.ID)
-	r.Equal(t, time.Unix(1, 0).UTC(), span.startTime)
-	r.Equal(t, time.Unix(10, 0).UTC(), span.endTime)
+	r.Equal(t, time.Unix(1, 0).UTC(), span.StartTime)
+	r.Equal(t, time.Unix(10, 0).UTC(), span.EndTime)
 
 }
 
@@ -61,8 +61,8 @@ func TestTracer_BuildBrokenPreSpan_1(t *testing.T) {
 	r.NoError(t, err)
 	r.NotNil(t, span)
 
-	r.Equal(t, time.Unix(1, 0).UTC(), span.startTime)
-	r.Equal(t, config.MaxSpanTimestamp.UTC(), span.endTime)
+	r.Equal(t, time.Unix(1, 0).UTC(), span.StartTime)
+	r.Equal(t, config.MaxSpanTimestamp.UTC(), span.EndTime)
 
 }
 
@@ -75,8 +75,8 @@ func TestTracer_BuildBrokenPreSpan_2(t *testing.T) {
 	r.NoError(t, err)
 	r.NotNil(t, span)
 
-	r.Equal(t, config.MinSpanTimestamp.UTC(), span.startTime)
-	r.Equal(t, time.Unix(1, 0).UTC(), span.endTime)
+	r.Equal(t, config.MinSpanTimestamp.UTC(), span.StartTime)
+	r.Equal(t, time.Unix(1, 0).UTC(), span.EndTime)
 
 }
 
@@ -122,13 +122,13 @@ func TestTracer_extractSvcName(t *testing.T) {
 //mockers
 
 func mockNewTracer() *Tracer {
-	tm := NewTracerManager()
+	tm := NewTracerManager(nil)
 	tm.InitDummyExporter()
 	return tm.addTracer(uuid1)
 }
 
 func mockNewTracerManager() *TracerManager {
-	tm := NewTracerManager()
+	tm := NewTracerManager(nil)
 	tm.InitDummyExporter()
 	tm.addTracer(uuid1)
 	return tm
@@ -195,13 +195,13 @@ func mockPreSpan(id string, src string, dest string, start time.Time, end time.T
 
 	return &PreSpan{
 		ID:        id,
-		traceID:   uuid1,
-		srcPod:    src + podNameSuffix,
-		srcSvc:    src,
-		destPod:   dest + podNameSuffix,
-		destSvc:   dest,
-		startTime: start,
-		endTime:   end,
+		TraceID:   uuid1,
+		SrcPod:    src + podNameSuffix,
+		SrcSvc:    src,
+		DestPod:   dest + podNameSuffix,
+		DestSvc:   dest,
+		StartTime: start,
+		EndTime:   end,
 	}
 }
 

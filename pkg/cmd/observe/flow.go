@@ -18,11 +18,9 @@ import (
 	"io"
 )
 
-var tracerManager = pkgtracer.NewTracerManager()
-
 func getHubbleClient(ctx context.Context, vp *viper.Viper) (observerpb.ObserverClient, func() error, error) {
 	// conn to a hubble server
-	hubbleEp := vp.GetString("HUBBLE_ENDPOINT")
+	hubbleEp := vp.GetString("SEEFLOW_HUBBLE_ENDPOINT")
 	if hubbleEp == "" {
 		hubbleEp = hubdefaults.ServerAddress
 	}
@@ -30,7 +28,7 @@ func getHubbleClient(ctx context.Context, vp *viper.Viper) (observerpb.ObserverC
 	if err != nil {
 		return nil, nil, err
 	}
-	logrus.WithField("endpoint", hubbleEp).Info("connected to Hubble")
+	logrus.WithField("endpoint", hubbleEp).Info("SeeFlow connected to Hubble")
 	client := observerpb.NewObserverClient(hubbleConn)
 	cleanup := hubbleConn.Close
 	return client, cleanup, nil
@@ -96,7 +94,8 @@ func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
 		number = selectorOpts.first
 	}
 
-	// allow L7 flow
+	// allow all L7 flow
+	// ref @github.com/cilium/hubble@v0.12.3/cmd/observe/flows_filter_test.go:73
 	allowList := make([]*flowpb.FlowFilter, 0)
 	allowL7 := &flowpb.FlowFilter{
 		EventType: []*flowpb.EventTypeFilter{
@@ -105,7 +104,6 @@ func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
 	}
 	allowList = append(allowList, allowL7)
 
-	// feat: allowList, blockList
 	req := &observerpb.GetFlowsRequest{
 		Number:    number,
 		Follow:    selectorOpts.follow,
@@ -119,14 +117,15 @@ func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
 	return req, nil
 }
 
-func handleFlows(ctx context.Context, client observerpb.ObserverClient, req *observerpb.GetFlowsRequest) error {
+func handleFlows(ctx context.Context, client observerpb.ObserverClient, req *observerpb.GetFlowsRequest, tm *pkgtracer.TracerManager) error {
 	c, err := client.GetFlows(ctx, req)
 	if err != nil {
 		return err
 	}
 
+	// todo: set checkpoint for Assemble
 	defer func() {
-		tracerManager.Assemble()
+		tm.Assemble()
 	}()
 
 	for {
@@ -145,9 +144,9 @@ func handleFlows(ctx context.Context, client observerpb.ObserverClient, req *obs
 
 		switch resp.GetResponseTypes().(type) {
 		case *observerpb.GetFlowsResponse_Flow:
-			tracerManager.ConsumeFlow(resp.GetFlow())
+			tm.ConsumeFlow(resp.GetFlow())
 		case *observerpb.GetFlowsResponse_NodeStatus:
-			logrus.Infof("node status: %s", resp.GetNodeStatus().Message)
+			logrus.Infof("SeeFlow got Hubble status: %s", resp.GetNodeStatus().Message)
 		default:
 			return nil
 		}

@@ -11,14 +11,14 @@ import (
 )
 
 type PreSpan struct {
-	ID        string // UUID32
-	traceID   string // UUID16, currently from X-B3-Traceid
-	srcPod    string
-	srcSvc    string
-	destPod   string
-	destSvc   string
-	startTime time.Time
-	endTime   time.Time
+	ID        string    `db:"id"`       // UUID32
+	TraceID   string    `db:"trace_id"` // UUID16, currently from X-B3-Traceid
+	SrcPod    string    `db:"src_pod"`
+	SrcSvc    string    `db:"src_svc"`
+	DestPod   string    `db:"dest_pod"`
+	DestSvc   string    `db:"dest_svc"`
+	StartTime time.Time `db:"start_time"`
+	EndTime   time.Time `db:"end_time"`
 	// 其他属性
 	// http.method
 	// http.url
@@ -61,14 +61,14 @@ func (tm *TracerManager) BuildPreSpan(flow *observerpb.Flow) (*PreSpan, error) {
 
 	retPreSpan := &PreSpan{
 		ID:        xreqID,
-		traceID:   traceID,
-		srcPod:    extractPodName(spanReq.Source),
-		srcSvc:    extractSvcName(spanReq.Source),
-		destPod:   extractPodName(spanReq.Destination),
-		destSvc:   extractSvcName(spanReq.Destination),
-		startTime: spanReq.Time.AsTime(),
-		// fixme: endTime 是否涉及到 latencyNs 字段
-		endTime: spanResp.Time.AsTime(),
+		TraceID:   traceID,
+		SrcPod:    extractPodName(spanReq.Source),
+		SrcSvc:    extractSvcName(spanReq.Source),
+		DestPod:   extractPodName(spanReq.Destination),
+		DestSvc:   extractSvcName(spanReq.Destination),
+		StartTime: spanReq.Time.AsTime(),
+		// fixme: EndTime 是否涉及到 latencyNs 字段
+		EndTime: spanResp.Time.AsTime(),
 	}
 	// 命中后清除
 	tm.bufFlow.Remove(xreqID)
@@ -90,13 +90,13 @@ func (tm *TracerManager) buildPreSpanForSingleRequest(flow *observerpb.Flow) (*P
 	}
 	retPreSpan := &PreSpan{
 		ID:        flow.Uuid,
-		traceID:   traceID,
-		srcPod:    extractPodName(flow.Source),
-		srcSvc:    extractSvcName(flow.Source),
-		destPod:   config.NameWorld,
-		destSvc:   config.NameUnknown,
-		startTime: flow.Time.AsTime(),
-		endTime:   config.MaxSpanTimestamp, // 如果是请求，其响应时间是 MaxSpanTimestamp
+		TraceID:   traceID,
+		SrcPod:    extractPodName(flow.Source),
+		SrcSvc:    extractSvcName(flow.Source),
+		DestPod:   config.NameWorld,
+		DestSvc:   config.NameUnknown,
+		StartTime: flow.Time.AsTime(),
+		EndTime:   config.MaxSpanTimestamp, // 如果是请求，其响应时间是 MaxSpanTimestamp
 	}
 	// 对于 SingleRequest 可知其 TraceID，故入表。
 	a, hit := tm.tracers.Get(traceID)
@@ -110,13 +110,13 @@ func (tm *TracerManager) buildPreSpanForSingleRequest(flow *observerpb.Flow) (*P
 func (tm *TracerManager) buildPreSpanForSingleResponse(flow *observerpb.Flow) (*PreSpan, error) {
 	retPreSpan := &PreSpan{
 		ID:        flow.Uuid,
-		traceID:   "",
-		srcPod:    config.NameWorld,
-		srcSvc:    config.NameUnknown,
-		destPod:   extractPodName(flow.Destination),
-		destSvc:   extractSvcName(flow.Destination),
-		startTime: config.MinSpanTimestamp, // 如果是响应，其请求时间是 MinSpanTimestamp
-		endTime:   flow.Time.AsTime(),
+		TraceID:   "",
+		SrcPod:    config.NameWorld,
+		SrcSvc:    config.NameUnknown,
+		DestPod:   extractPodName(flow.Destination),
+		DestSvc:   extractSvcName(flow.Destination),
+		StartTime: config.MinSpanTimestamp, // 如果是响应，其请求时间是 MinSpanTimestamp
+		EndTime:   flow.Time.AsTime(),
 	}
 	// 对于 SingleResponse 不可知其 TraceID，故不入表。
 	return retPreSpan, nil
@@ -124,12 +124,12 @@ func (tm *TracerManager) buildPreSpanForSingleResponse(flow *observerpb.Flow) (*
 
 // utils
 
-// TraceID 选用首个非空字段，优先级顺序：`x-client-trace-id`(128 bits) > `X-B3-Traceid`(64 bits)
+// TraceID 选用首个非空字段，优先级顺序：`x-client-trace-ID`(128 bits) > `X-B3-Traceid`(64 bits)
 // 测试数据中可能 response 没有 TraceID
 func extractTraceID(flow *observerpb.Flow) (string, error) {
 	headers := flow.L7.GetHttp().Headers
 	for i := 0; i < len(headers); i++ {
-		if strings.EqualFold(headers[i].Key, "x-client-trace-id") ||
+		if strings.EqualFold(headers[i].Key, "x-client-trace-ID") ||
 			strings.EqualFold(headers[i].Key, "x-b3-traceid") {
 			return headers[i].Value, nil
 		}
@@ -153,7 +153,7 @@ func extractXreqID(flow *observerpb.Flow) (string, error) {
 	headers := flow.L7.GetHttp().Headers
 	// 假设 X-Request-Id 字段是最后一个 Header，所以从后往前遍历
 	for i := len(headers) - 1; i > -1; i-- {
-		if strings.EqualFold(headers[i].Key, "x-request-id") {
+		if strings.EqualFold(headers[i].Key, "x-request-ID") {
 			return headers[i].Value, nil
 		}
 	}
@@ -201,5 +201,5 @@ func extractSvcName(endpoint *flowpb.Endpoint) string {
 }
 
 func structureSpanName(preSpan *PreSpan) string {
-	return preSpan.srcSvc + "-" + preSpan.destSvc
+	return preSpan.SrcSvc + "-" + preSpan.DestSvc
 }

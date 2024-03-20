@@ -14,7 +14,17 @@ const (
 
 // for root
 var (
-	Debug = false
+	Debug           = false
+	LoggerRawL7Flow *logrus.Logger
+)
+
+// for cmd observe
+var (
+	//请求 Hubble Flow 的数量
+	BatchLastFlow = 50
+
+	//插入 olap 的 Span 的数量
+	BatchSpan = 50
 )
 
 // for pkg tracer
@@ -25,7 +35,11 @@ var (
 	MinSpanTimestamp = time.Unix(0, 0).UTC()
 )
 
-var LoggerRawL7Flow *logrus.Logger
+// for DB
+var (
+	DATE6   = "2006-01-02 15:04:05.000000"
+	L_DATE6 = 26
+)
 
 // initializes logrus
 func initLogrus(_ *viper.Viper) {

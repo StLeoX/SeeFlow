@@ -42,5 +42,5 @@ func (tm *TracerManager) InitDummyExporter() (func(context.Context) error, error
 	tm.tracerProvider = sdktr.NewTracerProvider(
 		sdktr.WithResource(resource.NewSchemaless(attr.Bool("debug", true))),
 	)
-	return nil, nil
+	return tm.tracerProvider.Shutdown, nil
 }

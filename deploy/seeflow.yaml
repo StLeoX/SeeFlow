@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - env:
-            - name: HUBBLE_ENDPOINT
+            - name: SEEFLOW_HUBBLE_ENDPOINT
               value: hubble-relay.kube-system.svc.cluster.local:4245
           image: registry.cn-heyuan.aliyuncs.com/obser/seeflow:latest
           imagePullPolicy: IfNotPresent

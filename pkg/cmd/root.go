@@ -36,7 +36,7 @@ func NewViper() *viper.Viper {
 	}
 
 	// read config from environment variables
-	vp.SetEnvPrefix("seeflow") // env var must start with SEEFLOW_
+	vp.SetEnvPrefix("SEEFLOW") // used env var must start with SEEFLOW_
 	// replace - by _ for environment variable names
 	// (eg: the env var for tls-server-name is TLS_SERVER_NAME)
 	vp.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
@@ -54,9 +54,9 @@ func New(vp *viper.Viper) *cobra.Command {
 			}
 
 			if config.Debug {
-				logrus.Info("enabled debug mode")
+				logrus.Info("SeeFlow enabled debug mode")
 			} else {
-				logrus.Info("disabled debug mode")
+				logrus.Info("SeeFlow disabled debug mode")
 			}
 
 			if err := conn.Init(vp); err != nil {

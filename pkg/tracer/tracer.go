@@ -6,13 +6,16 @@ import (
 )
 
 type Tracer struct {
+	// back link to manager
+	manager *TracerManager
+
 	// identifier number
 	number int
 
 	// TraceID
 	traceID string
 
-	// span count
+	// historical span count
 	numSpan uint64
 
 	// preSpan buffer
@@ -41,5 +44,6 @@ func (t *Tracer) addPreSpan(preSpan *PreSpan) {
 	t.muPreSpan.Lock()
 	t.bufPreSpan = append(t.bufPreSpan, preSpan)
 	t.numSpan++
+	t.manager.olap.InsertL7Span(preSpan)
 	t.muPreSpan.Unlock()
 }
