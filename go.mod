@@ -5,7 +5,8 @@ go 1.21.0
 require (
 	github.com/cilium/cilium v1.15.2
 	github.com/cilium/hubble v0.12.3
-	github.com/go-sql-driver/mysql v1.8.0
+	// 暂时不要使用 v1.8.0 的 MySQL Driver 有缺陷
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/golang/protobuf v1.5.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/sirupsen/logrus v1.9.3
@@ -24,7 +25,6 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect

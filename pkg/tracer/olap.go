@@ -17,7 +17,7 @@ func NewOlap(vp *viper.Viper) *Olap {
 	// conn to the OLAP server
 	olapDSN := vp.GetString("SEEFLOW_OLAP_DSN")
 	if olapDSN == "" {
-		olapDSN = "root:seeflow@tcp(127.0.0.1:3316)/seeflow?charset=utf8mb4&parseTime=True&loc=Local"
+		olapDSN = config.SEEFLOW_DEFAULT_DSN
 	}
 
 	db := sqlx.NewMysql(olapDSN)
@@ -39,12 +39,14 @@ func NewOlap(vp *viper.Viper) *Olap {
 func CreateL7Table(db sqlx.SqlConn) {
 	// fixme 针对 Doris 的建表语句要修改。
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS `t_L7` " +
-		"(id TEXT, " +
-		"trace_id TEXT, " +
-		"src_pod TEXT, " +
-		"dest_pod TEXT, " +
+		"(id VARCHAR(36), " + // UUID32
+		"trace_id VARCHAR(16), " + // UUID16
+		"src_pod STRING, " +
+		"dest_pod STRING, " +
 		"start_time DATETIME(6), " +
-		"end_time DATETIME(6))")
+		"end_time DATETIME(6)) " +
+		"DISTRIBUTED BY HASH(id) BUCKETS 32 " +
+		"PROPERTIES (\"replication_num\" = \"1\");")
 	if err != nil {
 		logrus.WithError(err).Error("SeeFlow couldn't create Table t_L7")
 	}
@@ -53,7 +55,12 @@ func CreateL7Table(db sqlx.SqlConn) {
 func (o *Olap) InsertL7Span(span *PreSpan) {
 	// fixme flush 的用法是否正确？
 	defer o.l7Inserter.Flush()
-	err := o.l7Inserter.Insert(span.ID, span.TraceID, span.SrcPod, span.DestPod, span.StartTime.String()[:config.L_DATE6], span.EndTime.String()[:config.L_DATE6])
+	err := o.l7Inserter.Insert(span.ID,
+		span.TraceID,
+		span.SrcPod,
+		span.DestPod,
+		span.StartTime.String()[:config.L_DATE6],
+		span.EndTime.String()[:config.L_DATE6])
 	if err != nil {
 		logrus.WithError(err).WithField("span", *span).Warn("SeeFlow couldn't insert L7 span")
 	}

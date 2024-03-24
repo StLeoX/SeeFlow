@@ -44,6 +44,7 @@ func (t *Tracer) addPreSpan(preSpan *PreSpan) {
 	t.muPreSpan.Lock()
 	t.bufPreSpan = append(t.bufPreSpan, preSpan)
 	t.numSpan++
-	t.manager.olap.InsertL7Span(preSpan)
 	t.muPreSpan.Unlock()
+	// inserter 自身有锁
+	t.manager.olap.InsertL7Span(preSpan)
 }

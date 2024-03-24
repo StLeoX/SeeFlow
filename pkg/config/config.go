@@ -37,6 +37,9 @@ var (
 
 // for DB
 var (
+	// 测试账号
+	SEEFLOW_DEFAULT_DSN = "root:@tcp(127.0.0.1:9030)/seeflow"
+
 	DATE6   = "2006-01-02 15:04:05.000000"
 	L_DATE6 = 26
 )
