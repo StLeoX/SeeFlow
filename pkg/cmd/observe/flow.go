@@ -94,8 +94,7 @@ func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
 		number = selectorOpts.first
 	}
 
-	// allow all L7 flow
-	// ref @github.com/cilium/hubble@v0.12.3/cmd/observe/flows_filter_test.go:73
+	// allow all L7 flows, 参考 @github.com/cilium/hubble@v0.12.3/cmd/observe/flows_filter_test.go:73
 	allowList := make([]*flowpb.FlowFilter, 0)
 	allowL7 := &flowpb.FlowFilter{
 		EventType: []*flowpb.EventTypeFilter{
@@ -104,11 +103,28 @@ func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
 	}
 	allowList = append(allowList, allowL7)
 
+	// allow partial L34 flow, excludes DNS
+	allowL34 := &flowpb.FlowFilter{
+		EventType: []*flowpb.EventTypeFilter{
+			{Type: monitorAPI.MessageTypeTrace},
+		},
+	}
+	allowList = append(allowList, allowL34)
+
+	// block DNS flows, because DNS is not related with payload
+	blockList := make([]*flowpb.FlowFilter, 0)
+	// 过滤器是基于 "k8s:k8s-app=kube-dns" label，参考 @github.com/cilium/hubble@v0.12.3/cmd/observe/flows_filter_test.go:260
+	blockDNS := &flowpb.FlowFilter{
+		SourceLabel:      []string{"k8s:k8s-app=kube-dns"},
+		DestinationLabel: []string{"k8s:k8s-app=kube-dns"},
+	}
+	blockList = append(blockList, blockDNS)
+
 	req := &observerpb.GetFlowsRequest{
 		Number:    number,
 		Follow:    selectorOpts.follow,
 		Whitelist: allowList,
-		Blacklist: nil,
+		Blacklist: blockList,
 		Since:     since,
 		Until:     until,
 		First:     first,

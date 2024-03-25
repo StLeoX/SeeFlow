@@ -24,10 +24,12 @@ type TracerManager struct {
 	// cache: SpanID -> flow
 	// 被 ConsumeFlow 并发访问
 	bufFlow *lru.Cache[string, *observerpb.Flow]
-	// wg for ConsumeFlow
-	wgConsumeFlow sync.WaitGroup
-	// errs for ConsumeFlow
-	errConsumeFlow error
+	// wg for ConsumeHttp
+	wgConsumeHttp sync.WaitGroup
+	// err for ConsumeHttp
+	errConsumeHttp error
+	// err for ConsumeL34
+	errConsumeL34 error
 
 	ShutdownCtx context.Context
 
@@ -80,34 +82,49 @@ func (tm *TracerManager) addTracer(traceID string) *Tracer {
 }
 
 // ConsumeFlow
-// 消耗一条 Flow 数据
+// 消耗一条 Flow 数据，针对 l7_flow 和 l34_flow 不同类型进行分发
 func (tm *TracerManager) ConsumeFlow(flow *observerpb.Flow) {
 	if config.Debug {
 		config.LoggerRawL7Flow.Debug(flow)
 	}
 
-	// 过滤掉非 HTTP 的 flow，真实的 filter 已经在 allowList 处实现了。
-	if flow.GetType() != observerpb.FlowType_L7 || flow.L7.GetHttp() == nil {
-		return
-	}
-
-	tm.wgConsumeFlow.Add(1)
-	go func() {
-		defer tm.wgConsumeFlow.Done()
-
-		_, err := tm.BuildPreSpan(flow)
-		if err != nil {
-			tm.errConsumeFlow = errors.Join(tm.errConsumeFlow, err)
+	if flow.GetType() == observerpb.FlowType_L7 {
+		if flow.L7.GetHttp() != nil {
+			tm.consumeHttp(flow)
 		}
-	}()
+	} else if flow.GetType() == observerpb.FlowType_L3_L4 {
+		tm.consumeTrace(flow)
+	}
 
 }
 
-func (tm *TracerManager) waitForAssemble() {
-	tm.wgConsumeFlow.Wait()
+func (tm *TracerManager) consumeHttp(flow *observerpb.Flow) {
+	tm.wgConsumeHttp.Add(1)
+	go func() {
+		defer tm.wgConsumeHttp.Done()
 
-	if tm.errConsumeFlow != nil {
-		logrus.Error(tm.errConsumeFlow)
+		_, err := tm.BuildPreSpan(flow)
+		if err != nil {
+			tm.errConsumeHttp = errors.Join(tm.errConsumeHttp, err)
+		}
+	}()
+}
+
+func (tm *TracerManager) consumeTrace(flow *observerpb.Flow) {
+	// 异步处理，不需要 WG 同步
+	go func() {
+		_, err := tm.BuildL34Flow(flow)
+		if err != nil {
+			tm.errConsumeL34 = errors.Join(tm.errConsumeL34, err)
+		}
+	}()
+}
+
+func (tm *TracerManager) waitForAssemble() {
+	tm.wgConsumeHttp.Wait()
+
+	if tm.errConsumeHttp != nil {
+		logrus.Error(tm.errConsumeHttp)
 	}
 
 }

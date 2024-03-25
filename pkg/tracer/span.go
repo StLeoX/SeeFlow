@@ -4,7 +4,9 @@ import (
 	"fmt"
 	flowpb "github.com/cilium/cilium/api/v1/flow"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
+	"github.com/sirupsen/logrus"
 	"github.com/stleox/seeflow/pkg/config"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	tr "go.opentelemetry.io/otel/trace"
 	"strings"
 	"time"
@@ -122,7 +124,7 @@ func (tm *TracerManager) buildPreSpanForSingleResponse(flow *observerpb.Flow) (*
 	return retPreSpan, nil
 }
 
-// utils
+// Util
 
 // TraceID 选用首个非空字段，优先级顺序：`x-client-trace-ID`(128 bits) > `X-B3-Traceid`(64 bits)
 // 测试数据中可能 response 没有 TraceID
@@ -202,4 +204,42 @@ func extractSvcName(endpoint *flowpb.Endpoint) string {
 
 func structureSpanName(preSpan *PreSpan) string {
 	return preSpan.SrcSvc + "-" + preSpan.DestSvc
+}
+
+// DB
+
+func CreateL7Table(db sqlx.SqlConn) {
+	_, err := db.Exec("CREATE TABLE IF NOT EXISTS `t_L7` " +
+		"(id VARCHAR(36), " + // UUID32
+		"trace_id VARCHAR(16), " + // UUID16
+		"src_pod STRING, " +
+		"dest_pod STRING, " +
+		"start_time DATETIME(6), " +
+		"end_time DATETIME(6)) " +
+		"DISTRIBUTED BY HASH(id) BUCKETS 32 " +
+		"PROPERTIES (\"replication_num\" = \"1\");")
+	if err != nil {
+		logrus.WithError(err).Error("SeeFlow couldn't create Table t_L7")
+	}
+}
+
+func (o *Olap) InsertL7Span(span *PreSpan) {
+	// fixme flush 的用法是否正确？
+	defer o.l7Inserter.Flush()
+	err := o.l7Inserter.Insert(span.ID,
+		span.TraceID,
+		span.SrcPod,
+		span.DestPod,
+		span.StartTime.String()[:config.L_DATE6],
+		span.EndTime.String()[:config.L_DATE6])
+	if err != nil {
+		logrus.WithError(err).WithField("span", *span).Warn("SeeFlow couldn't insert L7 span")
+	}
+}
+
+func (o *Olap) SelectL7Spans(buf *[]*PreSpan) {
+	err := o.conn.QueryRows(buf, "SELECT id, trace_id, src_pod, '', dest_pod, '', start_time, end_time FROM `t_L7` ORDER BY start_time")
+	if err != nil {
+		logrus.WithError(err).Error("SeeFlow couldn't select L7 spans")
+	}
 }
