@@ -41,8 +41,9 @@ func NewTracerManager(vp *viper.Viper) *TracerManager {
 
 	if vp == nil {
 		tm.olap = nil // under testing
+	} else {
+		tm.olap = NewOlap(vp)
 	}
-	tm.olap = NewOlap(vp)
 
 	return &tm
 }
@@ -54,7 +55,7 @@ func (tm *TracerManager) addTracer(traceID string) *Tracer {
 	tm.numTracer.Add(1)
 	a.traceID = traceID
 	a.bufPreSpan = make([]*PreSpan, 0)
-	a.mapService = make(map[string]*PostSpan, 0)
+	a.mapService = make(map[uint32]*PostSpan, 0)
 
 	a.tracer = tm.tracerProvider.Tracer(fmt.Sprintf("tracer#%d", a.number))
 
@@ -141,7 +142,7 @@ func (tm *TracerManager) Flush() {
 	tm.olap.l34Inserter.Flush()
 	tm.olap.l7Inserter.Flush()
 
-	logrus.Infof("number of l34: %d", NumL34.Load())
+	logrus.Infof("number of l34: %d", numInsertedL34.Load())
 }
 
 func (tm *TracerManager) SummaryELs() {

@@ -32,27 +32,27 @@ func NewOlap(vp *viper.Viper) *Olap {
 
 	db := sqlx.NewMysql(olapDSN)
 
-	err := CreateL7Table(db)
-	if err != nil {
-		logrus.WithError(err).Error("SeeFlow couldn't create table t_L7")
-		return nil
-	}
-
-	l7Inserter, err := sqlx.NewBulkInserter(db, "INSERT INTO `t_L7` (id, trace_id, src_pod, dest_pod, start_time, end_time) VALUES (?,?,?,?,?,?)")
-	if err != nil {
-		logrus.WithError(err).Error("SeeFlow couldn't open Table t_L7")
-		return nil
-	}
-
-	err = CreateL34Table(db)
+	err := CreateL34Table(db)
 	if err != nil {
 		logrus.WithError(err).Error("SeeFlow couldn't create table t_L34")
 		return nil
 	}
 
-	l34Inserter, err := sqlx.NewBulkInserter(db, "INSERT INTO `t_L34` (time, namespace, src_identity, dest_identity, is_reply, traffic_direction, traffic_observation, verdict)  VALUES (?,?,?,?,?,?,?,?)")
+	l34Inserter, err := NewL34Inserter(db)
 	if err != nil {
 		logrus.WithError(err).Error("SeeFlow couldn't open Table t_L34")
+		return nil
+	}
+
+	err = CreateL7Table(db)
+	if err != nil {
+		logrus.WithError(err).Error("SeeFlow couldn't create table t_L7")
+		return nil
+	}
+
+	l7Inserter, err := NewL7Inserter(db)
+	if err != nil {
+		logrus.WithError(err).Error("SeeFlow couldn't open Table t_L7")
 		return nil
 	}
 

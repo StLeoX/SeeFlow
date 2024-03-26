@@ -13,14 +13,14 @@ import (
 )
 
 type PreSpan struct {
-	ID        string    `db:"id"`       // UUID32
-	TraceID   string    `db:"trace_id"` // UUID16, currently from X-B3-Traceid
-	SrcPod    string    `db:"src_pod"`
-	SrcSvc    string    `db:"src_svc"`
-	DestPod   string    `db:"dest_pod"`
-	DestSvc   string    `db:"dest_svc"`
-	StartTime time.Time `db:"start_time"`
-	EndTime   time.Time `db:"end_time"`
+	ID           string    `db:"id"`           // UUID32 格式的 SpanID
+	TraceID      string    `db:"trace_id"`     // UUID16、X-B3-Traceid 格式的 TraceID
+	SrcIdentity  uint32    `db:"src_identity"` // identity 是对服务组的编址
+	SrcPod       string    `db:"src_pod"`      // pod_name 是对 pod 的编址，类似的有 endpoint
+	DestIdentity uint32    `db:"dest_identity"`
+	DestPod      string    `db:"dest_pod"`
+	StartTime    time.Time `db:"start_time"` // 请求发出时间
+	EndTime      time.Time `db:"end_time"`   // 响应发出时间（不是响应被接收的时间）
 	// 其他属性
 	// http.method
 	// http.url
@@ -30,6 +30,11 @@ type PreSpan struct {
 // BuildPreSpan 构建 PreSpan
 // 构建成功，入队并返回；构建失败，返回 nil
 func (tm *TracerManager) BuildPreSpan(flow *observerpb.Flow) (*PreSpan, error) {
+	// first check
+	if err := checkSrcDest(flow); err != nil {
+		return nil, err
+	}
+
 	xreqID, err := extractXreqID(flow)
 	if err != nil {
 		return nil, err
@@ -61,14 +66,15 @@ func (tm *TracerManager) BuildPreSpan(flow *observerpb.Flow) (*PreSpan, error) {
 		return nil, err
 	}
 
+	// then build
 	retPreSpan := &PreSpan{
-		ID:        xreqID,
-		TraceID:   traceID,
-		SrcPod:    extractPodName(spanReq.Source),
-		SrcSvc:    extractSvcName(spanReq.Source),
-		DestPod:   extractPodName(spanReq.Destination),
-		DestSvc:   extractSvcName(spanReq.Destination),
-		StartTime: spanReq.Time.AsTime(),
+		ID:           xreqID,
+		TraceID:      traceID,
+		SrcIdentity:  spanReq.Source.Identity,
+		SrcPod:       extractPodName(spanReq.Source),
+		DestIdentity: spanReq.Destination.Identity,
+		DestPod:      extractPodName(spanReq.Destination),
+		StartTime:    spanReq.Time.AsTime(),
 		// fixme: EndTime 是否涉及到 latencyNs 字段
 		EndTime: spanResp.Time.AsTime(),
 	}
@@ -86,19 +92,26 @@ func (tm *TracerManager) BuildPreSpan(flow *observerpb.Flow) (*PreSpan, error) {
 
 // 针对溢出的 flow，我们构造其配对规则（注意，这会影响 tracing 算法）：
 func (tm *TracerManager) buildPreSpanForSingleRequest(flow *observerpb.Flow) (*PreSpan, error) {
+	// first check
+	if err := checkSrcDest(flow); err != nil {
+		return nil, err
+	}
+
 	traceID, err := extractTraceID(flow)
 	if err != nil {
 		return nil, err
 	}
+
+	// then build
 	retPreSpan := &PreSpan{
-		ID:        flow.Uuid,
-		TraceID:   traceID,
-		SrcPod:    extractPodName(flow.Source),
-		SrcSvc:    extractSvcName(flow.Source),
-		DestPod:   config.NameWorld,
-		DestSvc:   config.NameUnknown,
-		StartTime: flow.Time.AsTime(),
-		EndTime:   config.MaxSpanTimestamp, // 如果是请求，其响应时间是 MaxSpanTimestamp
+		ID:           flow.Uuid,
+		TraceID:      traceID,
+		SrcIdentity:  flow.Source.Identity,
+		SrcPod:       extractPodName(flow.Source),
+		DestIdentity: config.IdentityWorld,
+		DestPod:      config.NameWorld,
+		StartTime:    flow.Time.AsTime(),
+		EndTime:      config.MaxSpanTimestamp, // 如果是请求，其响应时间是 MaxSpanTimestamp
 	}
 	// 对于 SingleRequest 可知其 TraceID，故入表。
 	a, hit := tm.tracers.Get(traceID)
@@ -110,15 +123,21 @@ func (tm *TracerManager) buildPreSpanForSingleRequest(flow *observerpb.Flow) (*P
 }
 
 func (tm *TracerManager) buildPreSpanForSingleResponse(flow *observerpb.Flow) (*PreSpan, error) {
+	// first check
+	if err := checkSrcDest(flow); err != nil {
+		return nil, err
+	}
+
+	// then build
 	retPreSpan := &PreSpan{
-		ID:        flow.Uuid,
-		TraceID:   "",
-		SrcPod:    config.NameWorld,
-		SrcSvc:    config.NameUnknown,
-		DestPod:   extractPodName(flow.Destination),
-		DestSvc:   extractSvcName(flow.Destination),
-		StartTime: config.MinSpanTimestamp, // 如果是响应，其请求时间是 MinSpanTimestamp
-		EndTime:   flow.Time.AsTime(),
+		ID:           flow.Uuid,
+		TraceID:      "",
+		SrcIdentity:  config.IdentityWorld,
+		SrcPod:       config.NameWorld,
+		DestIdentity: flow.Destination.Identity,
+		DestPod:      extractPodName(flow.Destination),
+		StartTime:    config.MinSpanTimestamp, // 如果是响应，其请求时间是 MinSpanTimestamp
+		EndTime:      flow.Time.AsTime(),
 	}
 	// 对于 SingleResponse 不可知其 TraceID，故不入表。
 	return retPreSpan, nil
@@ -206,30 +225,60 @@ func extractSvcName(endpoint *flowpb.Endpoint) string {
 	return config.NameUnknown
 }
 
-func structureSpanName(preSpan *PreSpan) string {
-	return preSpan.SrcSvc + "-" + preSpan.DestSvc
+// convert from PodName to SvcName
+// 仅限于测试
+func convertPodName(podName string) string {
+	return strings.Split(podName, "-")[0]
+}
+
+// SpanName = {{SrcSvc}}-{{DestSvc}}
+func constructSpanName(preSpan *PreSpan) string {
+	return fmt.Sprintf("%s-%s", convertPodName(preSpan.SrcPod), convertPodName(preSpan.DestPod))
+}
+
+func checkSrcDest(flow *flowpb.Flow) error {
+	if flow.Source == nil ||
+		flow.Destination == nil {
+		return fmt.Errorf("flow#%s doesn't have Source or Destination", flow.Uuid)
+	}
+	return nil
 }
 
 // DB
 
 func CreateL7Table(db sqlx.SqlConn) error {
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS `t_L7` " +
-		"(id VARCHAR(36), " + // UUID32
-		"trace_id VARCHAR(16), " + // UUID16
-		"src_pod VARCHAR(50), " + // todo 后面会改成 identity
-		"dest_pod VARCHAR(50), " +
+		"(id VARCHAR(36), " + // len(UUID32)
+		"trace_id VARCHAR(16), " + // len(UUID16)
+		"src_identity BIGINT, " +
+		"dest_identity BIGINT, " +
 		"start_time DATETIME(6), " +
 		"end_time DATETIME(6)) " +
-		"DISTRIBUTED BY HASH(src_pod) BUCKETS 32 " +
+		"DISTRIBUTED BY HASH(src_identity) BUCKETS 32 " +
 		"PROPERTIES (\"replication_num\" = \"1\");")
 	return err
 }
 
+func NewL7Inserter(db sqlx.SqlConn) (*sqlx.BulkInserter, error) {
+	return sqlx.NewBulkInserter(db, "INSERT INTO `t_L7` "+
+		"(id, "+
+		"trace_id, "+
+		"src_identity, "+
+		"dest_identity, "+
+		"start_time, "+
+		"end_time) "+
+		"VALUES (?,?,?,?,?,?)")
+}
+
 func (o *Olap) InsertL7Span(span *PreSpan) {
-	err := o.l7Inserter.Insert(span.ID,
+	if o == nil {
+		return
+	}
+	err := o.l7Inserter.Insert(
+		span.ID,
 		span.TraceID,
-		span.SrcPod,
-		span.DestPod,
+		span.SrcIdentity,
+		span.DestIdentity,
 		span.StartTime.String()[:config.L_DATE6],
 		span.EndTime.String()[:config.L_DATE6])
 	if err != nil {

@@ -1,7 +1,6 @@
 package tracer
 
 import (
-	"fmt"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	"github.com/sirupsen/logrus"
 	"github.com/stleox/seeflow/pkg/config"
@@ -17,7 +16,7 @@ type L34Flow struct {
 	DestIdentity       uint32    `db:"dest_identity"`       //
 	IsReply            bool      `db:"is_reply"`            // 区分流量方向1。
 	TrafficDirection   string    `db:"traffic_direction"`   // 区分流量方向2，一般是这两种 "INGRESS" 或 "EGRESS"。
-	TrafficObservation string    `db:"traffic_observation"` // 捕获位置，一般是这两种 "TO_ENDPOINT" 或"TO_STACK"。
+	TrafficObservation string    `db:"traffic_observation"` // 捕获位置，一般是这三种 "TO_ENDPOINT" 或 "TO_STACK" 或 "TO_PROXY"。
 	Verdict            string    `db:"verdict"`             // 一般是这两种 "FORWARDED" 或 "DROPPED"。
 	// 其他属性
 	// EventType // 需要研究枚举
@@ -26,9 +25,8 @@ type L34Flow struct {
 
 func (tm *TracerManager) BuildL34Flow(flow *observerpb.Flow) (*L34Flow, error) {
 	// first check
-	if flow.Source == nil ||
-		flow.Destination == nil {
-		return nil, fmt.Errorf("l34 flow doesn't have Source or Destination")
+	if err := checkSrcDest(flow); err != nil {
+		return nil, err
 	}
 
 	// then build
@@ -65,10 +63,27 @@ func CreateL34Table(db sqlx.SqlConn) error {
 	return err
 }
 
-var NumL34 atomic.Int32
+func NewL34Inserter(db sqlx.SqlConn) (*sqlx.BulkInserter, error) {
+	return sqlx.NewBulkInserter(db, "INSERT INTO `t_L34` "+
+		"(time, "+
+		"namespace, "+
+		"src_identity, "+
+		"dest_identity, "+
+		"is_reply, "+
+		"traffic_direction, "+
+		"traffic_observation, "+
+		"verdict) "+
+		"VALUES (?,?,?,?,?,?,?,?)")
+}
+
+var numInsertedL34 atomic.Int32
 
 func (o *Olap) InsertL34Flow(l34 *L34Flow) {
-	err := o.l34Inserter.Insert(l34.Time.String()[:config.L_DATE6],
+	if o == nil {
+		return
+	}
+	err := o.l34Inserter.Insert(
+		l34.Time.String()[:config.L_DATE6],
 		l34.Namespace,
 		l34.SrcIdentity,
 		l34.DestIdentity,
@@ -80,7 +95,7 @@ func (o *Olap) InsertL34Flow(l34 *L34Flow) {
 		logrus.WithError(err).Warn("SeeFlow couldn't insert L34 flow")
 	}
 
-	NumL34.Add(1)
+	numInsertedL34.Add(1)
 }
 
 func (o *Olap) SelectL34Flow() {

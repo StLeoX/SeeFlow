@@ -42,7 +42,7 @@ func (t *Tracer) BasicAssemble(amCtx context.Context) error {
 		var curSpanID tr.SpanID
 		var parentCtx context.Context
 		// 检查缓存
-		if hitPostSpan, hit := t.mapService[preSpan.SrcPod]; !hit {
+		if hitPostSpan, hit := t.mapService[preSpan.SrcIdentity]; !hit {
 			// 缺失，构建 tr.Span
 			// 缺失的情况应该仅限于 Root Span
 			curPreSpan = preSpan
@@ -56,7 +56,7 @@ func (t *Tracer) BasicAssemble(amCtx context.Context) error {
 		}
 
 		// 命中或缺失，Span 都要入表
-		t.mapService[preSpan.DestPod] = &PostSpan{
+		t.mapService[preSpan.DestIdentity] = &PostSpan{
 			preSpan: curPreSpan,
 			ctx:     parentCtx,
 			spanID:  curSpanID,
@@ -84,7 +84,7 @@ func (t *Tracer) buildTrSpan(parentCtx context.Context, childSpan *PreSpan, pare
 	})
 
 	parentCtx = tr.ContextWithSpanContext(parentCtx, parentSpanCtx)
-	ctx, span := t.tracer.Start(parentCtx, structureSpanName(childSpan), startOpts...)
+	ctx, span := t.tracer.Start(parentCtx, constructSpanName(childSpan), startOpts...)
 	span.End(tr.WithTimestamp(childSpan.EndTime))
 
 	if config.Debug {

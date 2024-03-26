@@ -23,9 +23,9 @@ type Tracer struct {
 	bufPreSpan []*PreSpan
 	muPreSpan  sync.Mutex
 
-	// Pod DAG: destPodName -> preSpan
-	// 被 Assemble 单独访问
-	mapService map[string]*PostSpan
+	// Pod DAG: dest_identity -> preSpan
+	// 被 Assemble 单线程访问
+	mapService map[uint32]*PostSpan
 
 	// tracer
 	tracer tr.Tracer

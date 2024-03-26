@@ -188,20 +188,34 @@ func mockFlow(flowXreqValue string, flowTime time.Time, flowIsReply bool, flowSr
 	}
 }
 
+var mockPodName2Identity = make(map[string]uint32, 0)
+var mockId = uint32(0)
+
+func queryPodName2Identity(pod string) uint32 {
+	if id, hit := mockPodName2Identity[pod]; hit {
+		return id
+	} else {
+		id := mockId
+		mockId++
+		mockPodName2Identity[pod] = id
+		return id
+	}
+}
+
 func mockPreSpan(id string, src string, dest string, start time.Time, end time.Time) *PreSpan {
 	const (
 		podNameSuffix = "-0000000000-00000"
 	)
 
 	return &PreSpan{
-		ID:        id,
-		TraceID:   uuid1,
-		SrcPod:    src + podNameSuffix,
-		SrcSvc:    src,
-		DestPod:   dest + podNameSuffix,
-		DestSvc:   dest,
-		StartTime: start,
-		EndTime:   end,
+		ID:           id,
+		TraceID:      uuid1,
+		SrcIdentity:  queryPodName2Identity(src),
+		SrcPod:       src + podNameSuffix,
+		DestIdentity: queryPodName2Identity(dest),
+		DestPod:      dest + podNameSuffix,
+		StartTime:    start,
+		EndTime:      end,
 	}
 }
 

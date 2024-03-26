@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	NameUnknown = "unknown"
-	NameWorld   = "world"
+	NameUnknown   = "unknown"
+	NameWorld     = "world"
+	IdentityWorld = 2
 )
 
 // for root
