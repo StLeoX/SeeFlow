@@ -91,7 +91,7 @@ func init() {
 func New(vp *viper.Viper) *cobra.Command {
 	observe := &cobra.Command{
 		Use:   "observe",
-		Short: "Observe flows and assemble traces",
+		Short: "Observe flows since last 10 seconds, then assemble traces",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// init main context
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)

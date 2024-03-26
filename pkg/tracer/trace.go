@@ -18,6 +18,7 @@ type PostSpan struct {
 
 func (t *Tracer) Assemble(amCtx context.Context) error {
 	// todo: 策略模式
+	// todo set the checkpoint for Assemble
 	logrus.Debugf("call BasicAssemble() from #%d", t.number)
 	return t.BasicAssemble(amCtx)
 }
@@ -70,11 +71,6 @@ func (t *Tracer) buildTrSpan(parentCtx context.Context, childSpan *PreSpan, pare
 	startOpts = append(startOpts, tr.WithAttributes(attr.String("src", childSpan.SrcPod)))
 	startOpts = append(startOpts, tr.WithAttributes(attr.String("dest", childSpan.DestPod)))
 
-	traceID, err := convertTraceID(t.traceID)
-	if err != nil {
-		logrus.Warn(err)
-	} // TraceID is zero
-
 	// 暂时不知 TraceFlags 硬编码为 0x01 的后果，所以加个判断去除无效 SpanID
 	traceFlags := tr.TraceFlags(0x01)
 	if !parentSpanID.IsValid() {
@@ -82,7 +78,7 @@ func (t *Tracer) buildTrSpan(parentCtx context.Context, childSpan *PreSpan, pare
 	}
 
 	parentSpanCtx := tr.NewSpanContext(tr.SpanContextConfig{
-		TraceID:    traceID,
+		TraceID:    convertTraceID(t.traceID),
 		SpanID:     parentSpanID,
 		TraceFlags: traceFlags,
 	})

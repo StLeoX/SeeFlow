@@ -141,14 +141,18 @@ func extractTraceID(flow *observerpb.Flow) (string, error) {
 
 // convert to UUID32
 // demo input: "000000000000000a", usually extractTraceID's output.
-// demo output: "0000000000004000800000000000000a", zero if error.
+// demo output: "0000000000004000800000000000000a", `zero` if fail to convert.
 // https://stackoverflow.com/questions/7905929/how-to-test-valid-uuid-guid
-func convertTraceID(uuid string) (tr.TraceID, error) {
+func convertTraceID(uuid string) tr.TraceID {
 	if len(uuid) == 16 {
 		validMiddle := "0000400080000000"
 		uuid = uuid[:8] + validMiddle + uuid[8:]
 	}
-	return tr.TraceIDFromHex(uuid)
+	traceID, err := tr.TraceIDFromHex(uuid)
+	if err != nil {
+		return tr.TraceID{}
+	}
+	return traceID
 }
 
 func extractXreqID(flow *observerpb.Flow) (string, error) {
@@ -208,24 +212,20 @@ func structureSpanName(preSpan *PreSpan) string {
 
 // DB
 
-func CreateL7Table(db sqlx.SqlConn) {
+func CreateL7Table(db sqlx.SqlConn) error {
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS `t_L7` " +
 		"(id VARCHAR(36), " + // UUID32
 		"trace_id VARCHAR(16), " + // UUID16
-		"src_pod STRING, " +
-		"dest_pod STRING, " +
+		"src_pod VARCHAR(50), " + // todo 后面会改成 identity
+		"dest_pod VARCHAR(50), " +
 		"start_time DATETIME(6), " +
 		"end_time DATETIME(6)) " +
-		"DISTRIBUTED BY HASH(id) BUCKETS 32 " +
+		"DISTRIBUTED BY HASH(src_pod) BUCKETS 32 " +
 		"PROPERTIES (\"replication_num\" = \"1\");")
-	if err != nil {
-		logrus.WithError(err).Error("SeeFlow couldn't create Table t_L7")
-	}
+	return err
 }
 
 func (o *Olap) InsertL7Span(span *PreSpan) {
-	// fixme flush 的用法是否正确？
-	defer o.l7Inserter.Flush()
 	err := o.l7Inserter.Insert(span.ID,
 		span.TraceID,
 		span.SrcPod,

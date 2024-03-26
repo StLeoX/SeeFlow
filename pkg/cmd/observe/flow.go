@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"io"
+	"time"
 )
 
 func getHubbleClient(ctx context.Context, vp *viper.Viper) (observerpb.ObserverClient, func() error, error) {
@@ -35,6 +36,7 @@ func getHubbleClient(ctx context.Context, vp *viper.Viper) (observerpb.ObserverC
 }
 
 func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
+	// todo 取消 selectorOpts，直接构造 req。
 	first := selectorOpts.first > 0
 	last := selectorOpts.last > 0
 	if first && last {
@@ -130,6 +132,19 @@ func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
 		First:     first,
 	}
 
+	since2 := timestamppb.New(time.Now().Add(-10 * time.Second))
+	until2 := timestamppb.New(time.Now())
+
+	req = &observerpb.GetFlowsRequest{
+		Number:    0,
+		Follow:    selectorOpts.follow,
+		Whitelist: allowList,
+		Blacklist: blockList,
+		Since:     since2,
+		Until:     until2,
+		First:     first,
+	}
+
 	return req, nil
 }
 
@@ -139,9 +154,11 @@ func handleFlows(ctx context.Context, client observerpb.ObserverClient, req *obs
 		return err
 	}
 
-	// todo: set checkpoint for Assemble
+	// mark: defer-point of observe cmd
 	defer func() {
 		tm.Assemble()
+		tm.Flush()
+		tm.SummaryELs()
 	}()
 
 	for {

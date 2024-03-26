@@ -2,7 +2,6 @@ package tracer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -26,10 +25,6 @@ type TracerManager struct {
 	bufFlow *lru.Cache[string, *observerpb.Flow]
 	// wg for ConsumeHttp
 	wgConsumeHttp sync.WaitGroup
-	// err for ConsumeHttp
-	errConsumeHttp error
-	// err for ConsumeL34
-	errConsumeL34 error
 
 	ShutdownCtx context.Context
 
@@ -105,7 +100,7 @@ func (tm *TracerManager) consumeHttp(flow *observerpb.Flow) {
 
 		_, err := tm.BuildPreSpan(flow)
 		if err != nil {
-			tm.errConsumeHttp = errors.Join(tm.errConsumeHttp, err)
+			tm.olap.AddEL7(flow)
 		}
 	}()
 }
@@ -115,19 +110,16 @@ func (tm *TracerManager) consumeTrace(flow *observerpb.Flow) {
 	go func() {
 		_, err := tm.BuildL34Flow(flow)
 		if err != nil {
-			tm.errConsumeL34 = errors.Join(tm.errConsumeL34, err)
+			tm.olap.AddEL34(flow)
 		}
 	}()
 }
 
 func (tm *TracerManager) waitForAssemble() {
 	tm.wgConsumeHttp.Wait()
-
-	if tm.errConsumeHttp != nil {
-		logrus.Error(tm.errConsumeHttp)
-	}
-
 }
+
+// These hooked on defer-point of observe cmd:
 
 func (tm *TracerManager) Assemble() {
 	// todo: 设计聚集的触发。目前是接收到全体 flow，并对全体 trace 聚合。
@@ -143,4 +135,15 @@ func (tm *TracerManager) Assemble() {
 		tm.tracers.Remove(a.traceID)
 	}
 
+}
+
+func (tm *TracerManager) Flush() {
+	tm.olap.l34Inserter.Flush()
+	tm.olap.l7Inserter.Flush()
+
+	logrus.Infof("number of l34: %d", NumL34.Load())
+}
+
+func (tm *TracerManager) SummaryELs() {
+	tm.olap.SummaryELs()
 }
