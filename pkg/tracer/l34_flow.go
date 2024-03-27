@@ -51,14 +51,14 @@ func (tm *TracerManager) BuildL34Flow(flow *observerpb.Flow) (*L34Flow, error) {
 func CreateL34Table(db sqlx.SqlConn) error {
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS `t_L34` " +
 		"(time DATETIME(6), " +
-		"namespace STRING, " +
+		"namespace VARCHAR(127), " +
 		"src_identity BIGINT, " +
 		"dest_identity BIGINT, " +
 		"is_reply BOOLEAN, " +
-		"traffic_direction VARCHAR(7), " +
-		"traffic_observation VARCHAR(11), " +
-		"verdict VARCHAR(9)) " +
-		"DISTRIBUTED BY HASH(src_identity) BUCKETS 32 " +
+		"traffic_direction VARCHAR(15), " +
+		"traffic_observation VARCHAR(15), " +
+		"verdict VARCHAR(15)) " +
+		"DISTRIBUTED BY HASH(src_identity, dest_identity) BUCKETS 32 " +
 		"PROPERTIES (\"replication_num\" = \"1\");")
 	return err
 }

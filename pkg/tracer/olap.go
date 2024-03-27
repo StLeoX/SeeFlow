@@ -6,8 +6,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stleox/seeflow/pkg/config"
+	"github.com/stleox/seeflow/pkg/crd"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"sync"
+	"time"
 )
 
 type Olap struct {
@@ -30,30 +32,50 @@ func NewOlap(vp *viper.Viper) *Olap {
 		olapDSN = config.SEEFLOW_DEFAULT_DSN
 	}
 
+	// 新建 OLAP 实例
 	db := sqlx.NewMysql(olapDSN)
+	// 关闭 SQL 普通日志
+	sqlx.DisableStmtLog()
+	// 开启 SQL 慢查询日志，插入时延控制在 500ms 以内。
+	sqlx.SetSlowThreshold(500 * time.Millisecond)
 
+	// 新建 t_L34
 	err := CreateL34Table(db)
 	if err != nil {
 		logrus.WithError(err).Error("SeeFlow couldn't create table t_L34")
 		return nil
+	} else {
+		logrus.Info("SeeFlow created table t_L34")
 	}
 
 	l34Inserter, err := NewL34Inserter(db)
 	if err != nil {
-		logrus.WithError(err).Error("SeeFlow couldn't open Table t_L34")
+		logrus.WithError(err).Error("SeeFlow couldn't open table t_L34")
 		return nil
 	}
 
+	// 新建 t_L7
 	err = CreateL7Table(db)
 	if err != nil {
 		logrus.WithError(err).Error("SeeFlow couldn't create table t_L7")
 		return nil
+	} else {
+		logrus.Info("SeeFlow created table t_L7")
 	}
 
 	l7Inserter, err := NewL7Inserter(db)
 	if err != nil {
-		logrus.WithError(err).Error("SeeFlow couldn't open Table t_L7")
+		logrus.WithError(err).Error("SeeFlow couldn't open table t_L7")
 		return nil
+	}
+
+	// 新建 t_Ep
+	err = crd.CreateEndpointTable(db)
+	if err != nil {
+		logrus.WithError(err).Error("SeeFlow couldn't create table t_Ep")
+		return nil
+	} else {
+		logrus.Info("SeeFlow created table t_Ep")
 	}
 
 	return &Olap{

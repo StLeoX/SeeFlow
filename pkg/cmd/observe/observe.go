@@ -97,6 +97,8 @@ func New(vp *viper.Viper) *cobra.Command {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 			defer cancel()
 
+			// init bgTaskManager
+
 			// init tracerManager
 			tracerManager := pkgtracer.NewTracerManager(vp)
 

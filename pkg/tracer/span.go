@@ -248,13 +248,13 @@ func checkSrcDest(flow *flowpb.Flow) error {
 
 func CreateL7Table(db sqlx.SqlConn) error {
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS `t_L7` " +
-		"(id VARCHAR(36), " + // len(UUID32)
-		"trace_id VARCHAR(16), " + // len(UUID16)
+		"(id CHAR(36), " + // len(UUID32)
+		"trace_id CHAR(16), " + // len(UUID16)
 		"src_identity BIGINT, " +
 		"dest_identity BIGINT, " +
 		"start_time DATETIME(6), " +
 		"end_time DATETIME(6)) " +
-		"DISTRIBUTED BY HASH(src_identity) BUCKETS 32 " +
+		"DISTRIBUTED BY HASH(src_identity, dest_identity) BUCKETS 32 " +
 		"PROPERTIES (\"replication_num\" = \"1\");")
 	return err
 }
@@ -287,8 +287,5 @@ func (o *Olap) InsertL7Span(span *PreSpan) {
 }
 
 func (o *Olap) SelectL7Spans(buf *[]*PreSpan) {
-	err := o.conn.QueryRows(buf, "SELECT id, trace_id, src_pod, '', dest_pod, '', start_time, end_time FROM `t_L7` ORDER BY start_time")
-	if err != nil {
-		logrus.WithError(err).Error("SeeFlow couldn't select L7 spans")
-	}
+	// todo
 }
