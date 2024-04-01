@@ -2,17 +2,21 @@ package observe
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	observerpb "github.com/cilium/cilium/api/v1/observer"
+	hubdefaults "github.com/cilium/hubble/pkg/defaults"
 	hubtime "github.com/cilium/hubble/pkg/time"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/stleox/seeflow/pkg/cmd/common"
 	"github.com/stleox/seeflow/pkg/config"
 	pkgtracer "github.com/stleox/seeflow/pkg/tracer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -88,6 +92,118 @@ func init() {
 	)
 }
 
+// 在 observe 下，保留 selectorFlags 便于单次调试
+func getFlowsRequest() (*observerpb.GetFlowsRequest, error) {
+	first := selectorOpts.first > 0
+	last := selectorOpts.last > 0
+	if first && last {
+		return nil, fmt.Errorf("cannot set both --first and --last")
+	}
+	if first && selectorOpts.all {
+		return nil, fmt.Errorf("cannot set both --first and --all")
+	}
+	if first && selectorOpts.follow {
+		return nil, fmt.Errorf("cannot set both --first and --follow")
+	}
+	if last && selectorOpts.all {
+		return nil, fmt.Errorf("cannot set both --last and --all")
+	}
+
+	// convert selectorOpts.since into a param for GetFlows
+	var since, until *timestamppb.Timestamp
+	if selectorOpts.since != "" {
+		st, err := hubtime.FromString(selectorOpts.since)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse the since time: %v", err)
+		}
+
+		since = timestamppb.New(st)
+		if err := since.CheckValid(); err != nil {
+			return nil, fmt.Errorf("failed to convert `since` timestamp to proto: %v", err)
+		}
+	}
+	// Set the until field if --until option is specified and --follow
+	// is not specified. If --since is specified but --until is not, the server sets the
+	// --until option to the current timestamp.
+	if selectorOpts.until != "" && !selectorOpts.follow {
+		ut, err := hubtime.FromString(selectorOpts.until)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse the until time: %v", err)
+		}
+		until = timestamppb.New(ut)
+		if err := until.CheckValid(); err != nil {
+			return nil, fmt.Errorf("failed to convert `until` timestamp to proto: %v", err)
+		}
+	}
+
+	if since == nil && until == nil && !first {
+		switch {
+		case selectorOpts.all:
+			// all is an alias for last=uint64_max
+			selectorOpts.last = ^uint64(0)
+		case selectorOpts.last == 0 && !selectorOpts.follow:
+			// no specific parameters were provided, just a vanilla
+			// `hubble observe` in non-follow mode
+			selectorOpts.last = hubdefaults.FlowPrintCount
+		}
+	}
+
+	number := selectorOpts.last
+	if first {
+		number = selectorOpts.first
+	}
+
+	req := &observerpb.GetFlowsRequest{
+		Number:    number,
+		Follow:    selectorOpts.follow,
+		Whitelist: common.ConstructAllowList(),
+		Blacklist: common.ConstructBlockList(),
+		Since:     since,
+		Until:     until,
+		First:     first,
+	}
+	return req, nil
+}
+
+// 在 observe 下，设置有回调点
+func handleFlows(ctx context.Context, hubble observerpb.ObserverClient, req *observerpb.GetFlowsRequest, tm *pkgtracer.TracerManager) error {
+	c, err := hubble.GetFlows(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	// mark: defer-point of observe cmd
+	defer func() {
+		tm.Assemble()
+		tm.Flush()
+		tm.SummaryELs()
+	}()
+
+	for {
+		resp, err := c.Recv()
+
+		switch err {
+		case io.EOF, context.Canceled:
+			return nil
+		case nil:
+		default:
+			if status.Code(err) == codes.Canceled {
+				return nil
+			}
+			return err
+		}
+
+		switch resp.GetResponseTypes().(type) {
+		case *observerpb.GetFlowsResponse_Flow:
+			tm.ConsumeFlow(resp.GetFlow())
+		case *observerpb.GetFlowsResponse_NodeStatus:
+			logrus.Infof("SeeFlow got Hubble status: %s", resp.GetNodeStatus().Message)
+		default:
+			return nil
+		}
+	}
+}
+
 func New(vp *viper.Viper) *cobra.Command {
 	observe := &cobra.Command{
 		Use:   "observe",
@@ -96,8 +212,6 @@ func New(vp *viper.Viper) *cobra.Command {
 			// init main context
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 			defer cancel()
-
-			// init bgTaskManager
 
 			// init tracerManager
 			tracerManager := pkgtracer.NewTracerManager(vp)
@@ -113,8 +227,8 @@ func New(vp *viper.Viper) *cobra.Command {
 				}
 			}()
 
-			// init gRPC
-			client, cleanup, err := getHubbleClient(ctx, vp)
+			// init Hubble's gRPC
+			hubble, cleanup, err := common.GetHubbleClient(ctx, vp)
 			if err != nil {
 				return err
 			}
@@ -132,13 +246,13 @@ func New(vp *viper.Viper) *cobra.Command {
 			logrus.WithField("request", req).Debug("SeeFlow sent GetFlows request")
 
 			// handle flows
-			if err := handleFlows(ctx, client, req, tracerManager); err != nil {
+			if err := handleFlows(ctx, hubble, req, tracerManager); err != nil {
 				msg := err.Error()
 				// extract custom error message from failed grpc call
 				if s, ok := status.FromError(err); ok && s.Code() == codes.Unknown {
 					msg = s.Message()
 				}
-				return errors.New(msg)
+				return fmt.Errorf(msg)
 			}
 			return nil
 

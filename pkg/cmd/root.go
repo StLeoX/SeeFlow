@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/stleox/seeflow/pkg/cmd/observe"
+	"github.com/stleox/seeflow/pkg/cmd/serve"
 	"github.com/stleox/seeflow/pkg/config"
 	"os"
 	"strings"
@@ -75,6 +76,7 @@ func Execute() {
 
 	root := New(vp)
 	root.AddCommand(observe.New(vp))
+	root.AddCommand(serve.New(vp))
 
 	err := root.Execute()
 	if err != nil {

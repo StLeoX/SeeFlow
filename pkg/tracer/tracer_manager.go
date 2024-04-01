@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 )
 
-//nolint:revive
 type TracerManager struct {
 	numTracer atomic.Int32
 

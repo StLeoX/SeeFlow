@@ -92,7 +92,7 @@ func (o *Olap) InsertL34Flow(l34 *L34Flow) {
 		l34.TrafficObservation,
 		l34.Verdict)
 	if err != nil {
-		logrus.WithError(err).Warn("SeeFlow couldn't insert L34 flow")
+		logrus.WithError(err).Warn("SeeFlow couldn't insert into t_L34")
 	}
 
 	numInsertedL34.Add(1)

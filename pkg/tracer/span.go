@@ -282,10 +282,42 @@ func (o *Olap) InsertL7Span(span *PreSpan) {
 		span.StartTime.String()[:config.L_DATE6],
 		span.EndTime.String()[:config.L_DATE6])
 	if err != nil {
-		logrus.WithError(err).WithField("span", *span).Warn("SeeFlow couldn't insert L7 span")
+		logrus.WithError(err).WithField("span", *span).Warn("SeeFlow couldn't insert into t_L7")
 	}
 }
 
-func (o *Olap) SelectL7Spans(buf *[]*PreSpan) {
-	// todo
+// 选择某一 namespace 下的全体 span
+func (o *Olap) SelectL7Spans(spans *[]*PreSpan, namespace string) {
+	err := o.conn.QueryRows(*spans, "SELECT "+
+		"id, "+
+		"trace_id, "+
+		"src_identity, "+
+		"'', "+
+		"dest_identity, "+
+		"'', "+
+		"start_time, "+
+		"end_time "+
+		"FROM `t_L7` WHERE namespace = ?", namespace)
+	if err != nil {
+		logrus.WithError(err).Warn("SeeFlow couldn't select t_L7")
+	}
+}
+
+func (o *Olap) CountL7Spans(namespace string) int {
+	var count int
+	err := o.conn.QueryRow(&count, "SELECT COUNT(*) FROM `t_L7` WHERE namespace = ?", namespace)
+	if err != nil {
+		logrus.WithError(err).Warn("SeeFlow couldn't select t_L7")
+	}
+	return count
+}
+
+// 检查某一 namespace 下的 span 是否增加了
+// true 代表增加了
+// 很重
+func (o *Olap) CheckSpansCount(namespace string) bool {
+	if o.CountL7Spans(namespace) == o.mapSpanCount[namespace] {
+		return false
+	}
+	return true
 }

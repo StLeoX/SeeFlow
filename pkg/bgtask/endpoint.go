@@ -1,12 +1,12 @@
-package crd
+package bgtask
 
 import (
 	"github.com/sirupsen/logrus"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
+// （通过数据库）维持 Cilium 中的 endpoint 列表
 // concept: CiliumEndpoint vs CiliumIdentity
-
 type Endpoint struct {
 	Namespace string `db:"namespace"`
 	PodName   string `db:"pod_name"`
@@ -35,7 +35,7 @@ func CreateEndpointTable(db sqlx.SqlConn) error {
 func UpsertEndpoints(db sqlx.SqlConn, endpoints []*Endpoint) {
 	inserter, err := sqlx.NewBulkInserter(db, "")
 	if err != nil {
-		logrus.Error("SeeFlow couldn't open table t_Ep")
+		logrus.Error("SeeFlow couldn't open t_Ep")
 	}
 	defer inserter.Flush()
 
