@@ -13,14 +13,18 @@ import (
 )
 
 type PreSpan struct {
-	ID           string    `db:"id"`           // UUID32 格式的 SpanID
-	TraceID      string    `db:"trace_id"`     // UUID16、X-B3-Traceid 格式的 TraceID
-	SrcIdentity  uint32    `db:"src_identity"` // identity 是对服务组的编址
-	SrcPod       string    `db:"src_pod"`      // pod_name 是对 pod 的编址，类似的有 endpoint
-	DestIdentity uint32    `db:"dest_identity"`
-	DestPod      string    `db:"dest_pod"`
-	StartTime    time.Time `db:"start_time"` // 请求发出时间
-	EndTime      time.Time `db:"end_time"`   // 响应发出时间（不是响应被接收的时间）
+	ID      string `db:"id"`       // UUID32 格式的 SpanID
+	TraceID string `db:"trace_id"` // UUID16、X-B3-Traceid 格式的 TraceID
+
+	SrcIdentity uint32 `db:"src_identity"` // identity 是对服务组的编址
+	SrcPod      string `db:"src_pod"`      // pod_name 是对 pod 的编址，类似的有 endpoint
+
+	DestIdentity uint32 `db:"dest_identity"`
+	DestPod      string `db:"dest_pod"`
+
+	StartTime time.Time `db:"start_time"` // 请求发出时间
+	EndTime   time.Time `db:"end_time"`   // 响应发出时间（不是响应被接收的时间）
+
 	// 其他属性
 	// http.method
 	// http.url
@@ -221,6 +225,20 @@ func extractSvcName(endpoint *flowpb.Endpoint) string {
 		if strings.HasPrefix(label, "k8s:app") {
 			return label[8:]
 		}
+	}
+	return config.NameUnknown
+}
+
+// 析取 Namespace 字段，存在“或”逻辑
+func extractNamespace(flow *observerpb.Flow) string {
+	if flow == nil {
+		return config.NameUnknown
+	}
+	if flow.Source.Namespace != "" {
+		return flow.Source.Namespace
+	}
+	if flow.Destination.Namespace != "" {
+		return flow.Destination.Namespace
 	}
 	return config.NameUnknown
 }

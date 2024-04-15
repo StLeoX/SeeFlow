@@ -258,5 +258,6 @@ func New(vp *viper.Viper) *cobra.Command {
 
 		},
 	}
+	observe.Flags().AddFlagSet(selectorFlags)
 	return observe
 }

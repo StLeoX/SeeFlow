@@ -77,18 +77,19 @@ func (tm *TracerManager) addTracer(traceID string) *Tracer {
 }
 
 // ConsumeFlow
-// 消耗一条 Flow 数据，针对 l7_flow 和 l34_flow 不同类型进行分发
+// 消耗一条 Flow 数据，针对不同的 flow 类型进行分发
 func (tm *TracerManager) ConsumeFlow(flow *observerpb.Flow) {
 	if config.Debug {
 		config.LoggerRawL7Flow.Debug(flow)
 	}
 
-	if flow.GetType() == observerpb.FlowType_L7 {
-		if flow.L7.GetHttp() != nil {
-			tm.consumeHttp(flow)
-		}
+	if flow.GetType() == observerpb.FlowType_L7 &&
+		flow.L7.GetHttp() != nil {
+		tm.consumeHttp(flow)
 	} else if flow.GetType() == observerpb.FlowType_L3_L4 {
 		tm.consumeTrace(flow)
+	} else if flow.GetType() == observerpb.FlowType_SOCK {
+		tm.consumeTraceSock(flow)
 	}
 
 }
@@ -111,6 +112,16 @@ func (tm *TracerManager) consumeTrace(flow *observerpb.Flow) {
 		_, err := tm.BuildL34Flow(flow)
 		if err != nil {
 			tm.olap.AddEL34(flow)
+		}
+	}()
+}
+
+func (tm *TracerManager) consumeTraceSock(flow *observerpb.Flow) {
+	// 异步处理，不需要 WG 同步
+	go func() {
+		_, err := tm.BuildSockFlow(flow)
+		if err != nil {
+			tm.olap.AddELSock(flow)
 		}
 	}()
 }
@@ -140,8 +151,10 @@ func (tm *TracerManager) Assemble() {
 func (tm *TracerManager) Flush() {
 	tm.olap.l34Inserter.Flush()
 	tm.olap.l7Inserter.Flush()
+	tm.olap.sockInserter.Flush()
 
-	logrus.Infof("number of l34: %d", numInsertedL34.Load())
+	logrus.Infof("number of l34 flows: %d", numInsertedL34.Load())
+	logrus.Infof("number of sock flows: %d", numInsertedSock.Load())
 }
 
 func (tm *TracerManager) SummaryELs() {

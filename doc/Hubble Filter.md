@@ -14,7 +14,7 @@ l34_flow 的 type 是 trace。
 hubble observe -t trace --namespace deepflow-spring-demo --not --label "k8s:k8s-app=kube-dns" 
 ```
 
-`--namespace` 是一个“或”的逻辑，联合了 `--from-namespace` 和 `--to-namespace` 这两种情况。
+`--namespace` 是一个“或”逻辑，联合了 `--from-namespace` 和 `--to-namespace` 这两种情况。
 
 
 **l7_flow**

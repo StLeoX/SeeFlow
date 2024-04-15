@@ -37,13 +37,22 @@ func ConstructAllowList() []*flowpb.FlowFilter {
 	}
 	allowList = append(allowList, allowL7)
 
-	// allow partial L34 flow, excludes DNS
+	// allow partial L34 flows
 	allowL34 := &flowpb.FlowFilter{
 		EventType: []*flowpb.EventTypeFilter{
 			{Type: monitorAPI.MessageTypeTrace},
 		},
 	}
 	allowList = append(allowList, allowL34)
+
+	// allow all Sock flows
+	allowSock := &flowpb.FlowFilter{
+		EventType: []*flowpb.EventTypeFilter{
+			{Type: monitorAPI.MessageTypeTraceSock},
+		},
+	}
+	allowList = append(allowList, allowSock)
+
 	return allowList
 }
 
