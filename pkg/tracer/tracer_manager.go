@@ -20,10 +20,9 @@ type TracerManager struct {
 	tracers *lru.Cache[string, *Tracer]
 
 	// cache: SpanID -> flow
-	// 被 ConsumeFlow 并发访问
 	bufFlow *lru.Cache[string, *observerpb.Flow]
-	// wg for ConsumeHttp
-	wgConsumeHttp sync.WaitGroup
+
+	wgL7Consume sync.WaitGroup
 
 	ShutdownCtx context.Context
 
@@ -47,7 +46,7 @@ func NewTracerManager(vp *viper.Viper) *TracerManager {
 	return &tm
 }
 
-func (tm *TracerManager) addTracer(traceID string) *Tracer {
+func (tm *TracerManager) newTracer(traceID string) *Tracer {
 	var a Tracer
 	a.manager = tm
 	a.number = int(tm.numTracer.Load())
@@ -79,62 +78,32 @@ func (tm *TracerManager) addTracer(traceID string) *Tracer {
 // ConsumeFlow
 // 消耗一条 Flow 数据，针对不同的 flow 类型进行分发
 func (tm *TracerManager) ConsumeFlow(flow *observerpb.Flow) {
+	// 调试模式下记录流量
 	if config.Debug {
 		config.LoggerRawL7Flow.Debug(flow)
 	}
 
-	if flow.GetType() == observerpb.FlowType_L7 &&
-		flow.L7.GetHttp() != nil {
-		tm.consumeHttp(flow)
-	} else if flow.GetType() == observerpb.FlowType_L3_L4 {
-		tm.consumeTrace(flow)
-	} else if flow.GetType() == observerpb.FlowType_SOCK {
-		tm.consumeTraceSock(flow)
+	// 分发处理流量
+	switch flow.Type {
+	case observerpb.FlowType_L3_L4:
+		l34 := L34Flow{tm: tm}
+		l34.Consume(flow)
+	case observerpb.FlowType_SOCK:
+		sock := SockFlow{tm: tm}
+		sock.Consume(flow)
+	case observerpb.FlowType_L7:
+		l7 := L7Flow{tm: tm}
+		l7.Consume(flow)
+	default:
+		logrus.Warnf("SeeFlow met unsupportted Cilium flow: %s", flow.Type.String())
 	}
-
-}
-
-func (tm *TracerManager) consumeHttp(flow *observerpb.Flow) {
-	tm.wgConsumeHttp.Add(1)
-	go func() {
-		defer tm.wgConsumeHttp.Done()
-
-		_, err := tm.BuildPreSpan(flow)
-		if err != nil {
-			tm.olap.AddEL7(flow)
-		}
-	}()
-}
-
-func (tm *TracerManager) consumeTrace(flow *observerpb.Flow) {
-	// 异步处理，不需要 WG 同步
-	go func() {
-		_, err := tm.BuildL34Flow(flow)
-		if err != nil {
-			tm.olap.AddEL34(flow)
-		}
-	}()
-}
-
-func (tm *TracerManager) consumeTraceSock(flow *observerpb.Flow) {
-	// 异步处理，不需要 WG 同步
-	go func() {
-		_, err := tm.BuildSockFlow(flow)
-		if err != nil {
-			tm.olap.AddELSock(flow)
-		}
-	}()
-}
-
-func (tm *TracerManager) waitForAssemble() {
-	tm.wgConsumeHttp.Wait()
 }
 
 // These hooked on defer-point of observe cmd:
 
 func (tm *TracerManager) Assemble() {
 	// todo: 设计聚集的触发。目前是接收到全体 flow，并对全体 trace 聚合。
-	tm.waitForAssemble()
+	tm.wgL7Consume.Wait()
 
 	for _, a := range tm.tracers.Values() {
 		// 验证收集结果
@@ -152,11 +121,21 @@ func (tm *TracerManager) Flush() {
 	tm.olap.l34Inserter.Flush()
 	tm.olap.l7Inserter.Flush()
 	tm.olap.sockInserter.Flush()
-
-	logrus.Infof("number of l34 flows: %d", numInsertedL34.Load())
-	logrus.Infof("number of sock flows: %d", numInsertedSock.Load())
 }
 
-func (tm *TracerManager) SummaryELs() {
-	tm.olap.SummaryELs()
+func (tm *TracerManager) Summary() {
+	// 日志异常流量
+	tm.olap.SummaryExFlows()
+	// 日志插入数量，省略掉
+}
+
+func (tm *TracerManager) CheckSpansCount(trace_id string) bool {
+	current := tm.olap.countL7Spans("trace_id", trace_id)
+
+	history := 0
+	tracer, hit := tm.tracers.Get(trace_id)
+	if hit {
+		history = tracer.numSpan
+	}
+	return current != history
 }

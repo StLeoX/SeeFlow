@@ -7,8 +7,9 @@ import (
 	attr "go.opentelemetry.io/otel/attribute"
 	sdktr "go.opentelemetry.io/otel/sdk/trace"
 	tr "go.opentelemetry.io/otel/trace"
-	"sort"
 )
+
+type PreSpan = L7FlowEntity
 
 type PostSpan struct {
 	preSpan *PreSpan
@@ -27,14 +28,12 @@ func (t *Tracer) Assemble(amCtx context.Context) error {
 // 离线算法，输入完备的 Span 数据。
 // 返回 trace，返回的是该 Trace 的根 Span，提供给测试。
 func (t *Tracer) BasicAssemble(amCtx context.Context) error {
+	// 从 olap 拉取 span 到 t.bufPreSpan，已按 StartTime 升序排序
+	t.manager.olap.SelectL7Spans(&t.bufPreSpan, t.traceID)
+
 	if len(t.bufPreSpan) == 0 {
 		return nil
 	}
-
-	// 按 StartTime 升序排序
-	sort.Slice(t.bufPreSpan, func(i, j int) bool {
-		return t.bufPreSpan[i].StartTime.Before(t.bufPreSpan[j].StartTime)
-	})
 
 	// 遍历进行 parent 关联
 	for _, preSpan := range t.bufPreSpan {

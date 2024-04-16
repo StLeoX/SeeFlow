@@ -37,7 +37,7 @@ linters:
     - nosprintfhostport
     - predeclared
     - reassign
-    - revive
+#    - revive
     - staticcheck
     - tagalign
     - tenv

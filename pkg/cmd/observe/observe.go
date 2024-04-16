@@ -174,9 +174,9 @@ func handleFlows(ctx context.Context, hubble observerpb.ObserverClient, req *obs
 
 	// mark: defer-point of observe cmd
 	defer func() {
-		tm.Assemble()
 		tm.Flush()
-		tm.SummaryELs()
+		tm.Assemble()
+		tm.Summary()
 	}()
 
 	for {

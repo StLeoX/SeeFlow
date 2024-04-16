@@ -17,18 +17,21 @@ func TestTracer_BuildPreSpan_1(t *testing.T) {
 	tm := mockNewTracerManager()
 
 	f1 := mockFlow(uuid1, time.Unix(1, 0), false, "bar", "foo")
-	span, err := tm.BuildPreSpan(f1)
+	l7_1 := &L7Flow{tm: tm}
+	err := l7_1.Build(f1) // l7_1 为空
 	r.NoError(t, err)
-	r.Nil(t, span)
+	r.Equal(t, 0, int(l7_1.SrcIdentity))
+	r.Equal(t, 0, int(l7_1.DestIdentity))
 
 	f2 := mockFlow(uuid1, time.Unix(10, 0), true, "foo", "bar")
-	span, err = tm.BuildPreSpan(f2)
+	l7_2 := &L7Flow{tm: tm}
+	err = l7_2.Build(f2)
 	r.NoError(t, err)
-	r.NotNil(t, span)
-
-	r.Equal(t, uuid1, span.ID)
-	r.Equal(t, time.Unix(1, 0).UTC(), span.StartTime)
-	r.Equal(t, time.Unix(10, 0).UTC(), span.EndTime)
+	r.Equal(t, uuid1, l7_2.ID)
+	r.Equal(t, 1, int(l7_2.SrcIdentity))
+	r.Equal(t, 2, int(l7_2.DestIdentity))
+	r.Equal(t, time.Unix(1, 0).UTC(), l7_2.StartTime)
+	r.Equal(t, time.Unix(10, 0).UTC(), l7_2.EndTime)
 
 }
 
@@ -37,46 +40,55 @@ func TestTracer_BuildPreSpan_2(t *testing.T) {
 	tm := mockNewTracerManager()
 
 	f1 := mockFlow(uuid2, time.Unix(10, 0), true, "foo", "bar")
-	span, err := tm.BuildPreSpan(f1)
+	l7_1 := &L7Flow{tm: tm}
+	err := l7_1.Build(f1) // l7_1 为空
 	r.NoError(t, err)
-	r.Nil(t, span)
+	r.Equal(t, 0, int(l7_1.SrcIdentity))
+	r.Equal(t, 0, int(l7_1.DestIdentity))
 
 	f2 := mockFlow(uuid2, time.Unix(1, 0), false, "bar", "foo")
-	span, err = tm.BuildPreSpan(f2)
+	l7_2 := &L7Flow{tm: tm}
+	err = l7_2.Build(f2)
 	r.NoError(t, err)
-	r.NotNil(t, span)
-
-	r.Equal(t, uuid2, span.ID)
-	r.Equal(t, time.Unix(1, 0).UTC(), span.StartTime)
-	r.Equal(t, time.Unix(10, 0).UTC(), span.EndTime)
+	r.Equal(t, uuid2, l7_2.ID)
+	r.Equal(t, 1, int(l7_2.SrcIdentity))
+	r.Equal(t, 2, int(l7_2.DestIdentity))
+	r.Equal(t, time.Unix(1, 0).UTC(), l7_2.StartTime)
+	r.Equal(t, time.Unix(10, 0).UTC(), l7_2.EndTime)
 
 }
 
 func TestTracer_BuildBrokenPreSpan_1(t *testing.T) {
 	// broken span: f1 is request
 	tm := mockNewTracerManager()
+	// 修改配置：插入一条就触发 evict + BuildBroken。
+	config.MaxNumFlow = 1
 
-	f1 := mockFlow(uuid1, time.Unix(1, 0), false, "bar", "foo")
-	span, err := tm.buildPreSpanForSingleRequest(f1)
+	f1 := mockFlow(uuid1, time.Unix(1, 0), false, "foo", "bar")
+	l7_1 := &L7Flow{tm: tm}
+	err := l7_1.Build(f1) // l7_1 不为空
 	r.NoError(t, err)
-	r.NotNil(t, span)
-
-	r.Equal(t, time.Unix(1, 0).UTC(), span.StartTime)
-	r.Equal(t, config.MaxSpanTimestamp.UTC(), span.EndTime)
+	r.Equal(t, "foo-0000000000-00000", l7_1.SrcPod)
+	r.Equal(t, "world", l7_1.DestPod)
+	r.Equal(t, time.Unix(1, 0).UTC(), l7_1.StartTime)
+	r.Equal(t, config.MaxSpanTimestamp.UTC(), l7_1.EndTime)
 
 }
 
 func TestTracer_BuildBrokenPreSpan_2(t *testing.T) {
 	// broken span: f1 is response
 	tm := mockNewTracerManager()
+	// 修改配置：插入一条就触发 evict + BuildBroken。
+	config.MaxNumFlow = 1
 
-	f1 := mockFlow(uuid1, time.Unix(1, 0), true, "bar", "foo")
-	span, err := tm.buildPreSpanForSingleResponse(f1)
+	f1 := mockFlow(uuid1, time.Unix(1, 0), true, "foo", "bar")
+	l7_1 := &L7Flow{tm: tm}
+	err := l7_1.Build(f1) // l7_1 不为空
 	r.NoError(t, err)
-	r.NotNil(t, span)
-
-	r.Equal(t, config.MinSpanTimestamp.UTC(), span.StartTime)
-	r.Equal(t, time.Unix(1, 0).UTC(), span.EndTime)
+	r.Equal(t, "world", l7_1.SrcPod)
+	r.Equal(t, "bar-0000000000-00000", l7_1.DestPod)
+	r.Equal(t, config.MinSpanTimestamp.UTC(), l7_1.StartTime)
+	r.Equal(t, time.Unix(1, 0).UTC(), l7_1.EndTime)
 
 }
 
@@ -124,13 +136,13 @@ func TestTracer_extractSvcName(t *testing.T) {
 func mockNewTracer() *Tracer {
 	tm := NewTracerManager(nil)
 	tm.InitDummyExporter()
-	return tm.addTracer(uuid1)
+	return tm.newTracer(uuid1)
 }
 
 func mockNewTracerManager() *TracerManager {
 	tm := NewTracerManager(nil)
 	tm.InitDummyExporter()
-	tm.addTracer(uuid1)
+	tm.newTracer(uuid1)
 	return tm
 }
 
@@ -163,12 +175,14 @@ func mockFlow(flowXreqValue string, flowTime time.Time, flowIsReply bool, flowSr
 	}
 
 	argSrc := &observerpb.Endpoint{
-		Labels:  []string{svcLabelPrefix + flowSrc},
-		PodName: flowSrc + podNameSuffix,
+		Identity: queryPodName2Identity(flowSrc),
+		Labels:   []string{svcLabelPrefix + flowSrc},
+		PodName:  flowSrc + podNameSuffix,
 	}
 	argDest := &observerpb.Endpoint{
-		Labels:  []string{svcLabelPrefix + flowDest},
-		PodName: flowDest + podNameSuffix,
+		Identity: queryPodName2Identity(flowDest),
+		Labels:   []string{svcLabelPrefix + flowDest},
+		PodName:  flowDest + podNameSuffix,
 	}
 
 	return &observerpb.Flow{
@@ -189,7 +203,7 @@ func mockFlow(flowXreqValue string, flowTime time.Time, flowIsReply bool, flowSr
 }
 
 var mockPodName2Identity = make(map[string]uint32, 0)
-var mockId = uint32(0)
+var mockId = uint32(1) // 从 1 开始，区分空值 0。
 
 func queryPodName2Identity(pod string) uint32 {
 	if id, hit := mockPodName2Identity[pod]; hit {

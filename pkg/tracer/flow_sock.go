@@ -1,15 +1,15 @@
 package tracer
 
 import (
+	flowpb "github.com/cilium/cilium/api/v1/flow"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	"github.com/sirupsen/logrus"
 	"github.com/stleox/seeflow/pkg/config"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
-	"sync/atomic"
 	"time"
 )
 
-type SockFlow struct {
+type SockFlowEntity struct {
 	Time      time.Time `db:"time"`      // 捕获时间。
 	Namespace string    `db:"namespace"` // 流量相关名字空间，存在“或”逻辑。
 
@@ -24,14 +24,17 @@ type SockFlow struct {
 
 }
 
-func (tm *TracerManager) BuildSockFlow(flow *observerpb.Flow) (*SockFlow, error) {
-	// first check
-	if err := checkSrcDest(flow); err != nil {
-		return nil, err
-	}
+type SockFlow struct {
+	SockFlowEntity
+	tm *TracerManager
+}
 
-	// then build
-	sock := SockFlow{
+func (s *SockFlow) Check(flow *flowpb.Flow) error {
+	return checkSrcDest(flow)
+}
+
+func (s *SockFlow) Build(flow *observerpb.Flow) error {
+	s.SockFlowEntity = SockFlowEntity{
 		Time:      flow.Time.AsTime(),
 		Namespace: extractNamespace(flow),
 
@@ -42,11 +45,75 @@ func (tm *TracerManager) BuildSockFlow(flow *observerpb.Flow) (*SockFlow, error)
 		SubType:   int8(flow.EventType.SubType),
 		CgroupId:  int(flow.CgroupId),
 	}
+	return nil
+}
 
-	tm.olap.InsertSockFlow(&sock)
+func (s *SockFlow) Insert() error {
+	o := s.tm.olap
+	if o == nil {
+		return nil
+	}
+	err := o.sockInserter.Insert(
+		s.Time.String()[:config.L_DATE6],
+		s.Namespace,
+		s.SrcIdentity,
+		s.DestIdentity,
+		s.EventType,
+		s.SubType,
+		s.CgroupId)
+	if err != nil {
+		logrus.WithError(err).Warn("SeeFlow couldn't insert into t_Sock")
+		return err
+	}
+	return nil
+}
 
-	return &sock, nil
+func (s *SockFlow) MarkExFlow(exFlow ExFlow) {
+	o := s.tm.olap
+	if o == nil {
+		return
+	}
 
+	o.muExSock.Lock()
+	o.arrExSock = append(o.arrExSock, exFlow)
+	o.muExSock.Unlock()
+
+}
+
+func (s *SockFlow) Consume(flow *flowpb.Flow) {
+	// 异步处理，不需要 WG 同步
+	go func() {
+		var reason int
+		var err error
+		// 首先检查
+		err = s.Check(flow)
+		if err != nil {
+			reason = kExSockBroken
+			goto ret
+		}
+
+		// 然后构建
+		err = s.Build(flow)
+		if err != nil {
+			reason = kExSockBroken
+			goto ret
+		}
+
+		// 最后插入
+		err = s.Insert()
+		if err != nil {
+			reason = kExSockNotInserted
+			goto ret
+		}
+
+	ret:
+		s.MarkExFlow(ExFlow{
+			reason: reason,
+			errMsg: err.Error(),
+			flow:   flow,
+		})
+
+	}()
 }
 
 // DB
@@ -75,25 +142,4 @@ func NewSockInserter(db sqlx.SqlConn) (*sqlx.BulkInserter, error) {
 		"sub_type, "+
 		"cgroup_id) "+
 		"VALUES (?,?,?,?,?,?,?)")
-}
-
-var numInsertedSock atomic.Int32
-
-func (o *Olap) InsertSockFlow(sock *SockFlow) {
-	if o == nil {
-		return
-	}
-	err := o.sockInserter.Insert(
-		sock.Time.String()[:config.L_DATE6],
-		sock.Namespace,
-		sock.SrcIdentity,
-		sock.DestIdentity,
-		sock.EventType,
-		sock.SubType,
-		sock.CgroupId)
-	if err != nil {
-		logrus.WithError(err).Warn("SeeFlow couldn't insert into t_Sock")
-	}
-
-	numInsertedSock.Add(1)
 }

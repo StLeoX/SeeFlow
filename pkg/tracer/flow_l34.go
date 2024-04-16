@@ -1,15 +1,15 @@
 package tracer
 
 import (
+	flowpb "github.com/cilium/cilium/api/v1/flow"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	"github.com/sirupsen/logrus"
 	"github.com/stleox/seeflow/pkg/config"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
-	"sync/atomic"
 	"time"
 )
 
-type L34Flow struct {
+type L34FlowEntity struct {
 	Time      time.Time `db:"time"`      // 捕获时间。
 	Namespace string    `db:"namespace"` // 流量相关名字空间，存在“或”逻辑。
 
@@ -28,14 +28,17 @@ type L34Flow struct {
 	// Protocol // L4 协议，包含 TCP、UDP、ICMP。
 }
 
-func (tm *TracerManager) BuildL34Flow(flow *observerpb.Flow) (*L34Flow, error) {
-	// first check
-	if err := checkSrcDest(flow); err != nil {
-		return nil, err
-	}
+type L34Flow struct {
+	L34FlowEntity
+	tm *TracerManager
+}
 
-	// then build
-	l34 := L34Flow{
+func (l *L34Flow) Check(flow *flowpb.Flow) error {
+	return checkSrcDest(flow)
+}
+
+func (l *L34Flow) Build(flow *observerpb.Flow) error {
+	l.L34FlowEntity = L34FlowEntity{
 		Time:               flow.Time.AsTime(),
 		Namespace:          extractNamespace(flow),
 		SrcIdentity:        flow.Source.Identity,
@@ -45,10 +48,77 @@ func (tm *TracerManager) BuildL34Flow(flow *observerpb.Flow) (*L34Flow, error) {
 		TrafficObservation: flow.TraceObservationPoint.String(),
 		Verdict:            flow.Verdict.String(),
 	}
+	return nil
 
-	tm.olap.InsertL34Flow(&l34)
+}
 
-	return &l34, nil
+func (l *L34Flow) Insert() error {
+	if l.tm.olap == nil {
+		return nil
+	}
+	err := l.tm.olap.l34Inserter.Insert(
+		l.Time.String()[:config.L_DATE6],
+		l.Namespace,
+		l.SrcIdentity,
+		l.DestIdentity,
+		l.IsReply,
+		l.TrafficDirection,
+		l.TrafficObservation,
+		l.Verdict)
+	if err != nil {
+		logrus.WithError(err).Warn("SeeFlow couldn't insert into t_L34")
+		return err
+	}
+	return nil
+}
+
+func (l *L34Flow) MarkExFlow(exFlow ExFlow) {
+	o := l.tm.olap
+	if o == nil {
+		return
+	}
+
+	o.muExL34.Lock()
+	o.arrExL34 = append(o.arrExL34, exFlow)
+	o.muExL34.Unlock()
+
+}
+
+func (l *L34Flow) Consume(flow *flowpb.Flow) {
+	// 异步处理，不需要 WG 同步
+	go func() {
+		var reason int
+		var err error
+		// 首先检查
+		err = l.Check(flow)
+		if err != nil {
+			reason = kExL34Broken
+			goto ret
+		}
+
+		// 然后构建
+		err = l.Build(flow)
+		if err != nil {
+			reason = kExL34Broken
+			goto ret
+		}
+
+		// 最后插入
+		err = l.Insert()
+		if err != nil {
+			reason = kExL34NotInserted
+			goto ret
+		}
+
+	ret:
+		l.MarkExFlow(ExFlow{
+			reason: reason,
+			errMsg: err.Error(),
+			flow:   flow,
+		})
+
+	}()
+
 }
 
 // DB
@@ -79,30 +149,4 @@ func NewL34Inserter(db sqlx.SqlConn) (*sqlx.BulkInserter, error) {
 		"traffic_observation, "+
 		"verdict) "+
 		"VALUES (?,?,?,?,?,?,?,?)")
-}
-
-var numInsertedL34 atomic.Int32
-
-func (o *Olap) InsertL34Flow(l34 *L34Flow) {
-	if o == nil {
-		return
-	}
-	err := o.l34Inserter.Insert(
-		l34.Time.String()[:config.L_DATE6],
-		l34.Namespace,
-		l34.SrcIdentity,
-		l34.DestIdentity,
-		l34.IsReply,
-		l34.TrafficDirection,
-		l34.TrafficObservation,
-		l34.Verdict)
-	if err != nil {
-		logrus.WithError(err).Warn("SeeFlow couldn't insert into t_L34")
-	}
-
-	numInsertedL34.Add(1)
-}
-
-func (o *Olap) SelectL34Flow() {
-	// todo
 }
