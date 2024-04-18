@@ -80,7 +80,7 @@ func (tm *TracerManager) newTracer(traceID string) *Tracer {
 func (tm *TracerManager) ConsumeFlow(flow *observerpb.Flow) {
 	// 调试模式下记录流量
 	if config.Debug {
-		config.LoggerRawL7Flow.Debug(flow)
+		config.Log4RawL7.Debug(flow)
 	}
 
 	// 分发处理流量

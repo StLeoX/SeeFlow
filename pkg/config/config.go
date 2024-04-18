@@ -1,9 +1,6 @@
 package config
 
 import (
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	"os"
 	"time"
 )
 
@@ -15,8 +12,7 @@ const (
 
 // for root
 var (
-	Debug           = false
-	LoggerRawL7Flow *logrus.Logger
+	Debug = false
 )
 
 // for cmd observe
@@ -55,37 +51,3 @@ var (
 	// DATE6 = "2006-01-02 15:04:05.000000" 的长度
 	L_DATE6 = 26
 )
-
-// initializes logrus
-func initLogrus(_ *viper.Viper) {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		DisableColors:   true,
-		TimestampFormat: time.DateTime,
-	})
-	if Debug {
-		logrus.SetLevel(logrus.DebugLevel)
-	} else {
-		logrus.SetLevel(logrus.InfoLevel)
-	}
-}
-
-func initRawL7FlowLogger() *logrus.Logger {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	logger.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: time.DateTime,
-		PrettyPrint:     true,
-	})
-	tmpLog, err := os.OpenFile("/tmp/seeflow_raw_l7flow.log.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		panic(err)
-	}
-	//defer tmpLog.Close()
-	logger.SetOutput(tmpLog)
-	return logger
-}
-
-func init() {
-	initLogrus(nil)
-	LoggerRawL7Flow = initRawL7FlowLogger()
-}

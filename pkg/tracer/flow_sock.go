@@ -89,24 +89,26 @@ func (s *SockFlow) Consume(flow *flowpb.Flow) {
 		err = s.Check(flow)
 		if err != nil {
 			reason = kExSockBroken
-			goto ret
+			goto eReturn
 		}
 
 		// 然后构建
 		err = s.Build(flow)
 		if err != nil {
 			reason = kExSockBroken
-			goto ret
+			goto eReturn
 		}
 
 		// 最后插入
 		err = s.Insert()
 		if err != nil {
 			reason = kExSockNotInserted
-			goto ret
+			goto eReturn
 		}
 
-	ret:
+		return
+
+	eReturn:
 		s.MarkExFlow(ExFlow{
 			reason: reason,
 			errMsg: err.Error(),

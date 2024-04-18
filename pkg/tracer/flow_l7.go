@@ -139,9 +139,7 @@ func (l *L7Flow) Insert() error {
 		l.ID,
 		l.TraceID,
 		l.SrcIdentity,
-		l.SrcPod,
 		l.DestIdentity,
-		l.DestPod,
 		l.StartTime,
 		l.EndTime)
 	if err != nil {
@@ -175,24 +173,26 @@ func (l *L7Flow) Consume(flow *flowpb.Flow) {
 		err = l.Check(flow)
 		if err != nil {
 			reason = kExL7Broken
-			goto ret
+			goto eReturn
 		}
 
 		// 然后构建
 		err = l.Build(flow)
 		if err != nil {
 			reason = kExL7Broken
-			goto ret
+			goto eReturn
 		}
 
 		// 最后插入
 		err = l.Insert()
 		if err != nil {
 			reason = kExL7NotInserted
-			goto ret
+			goto eReturn
 		}
 
-	ret:
+		return
+
+	eReturn:
 		l.MarkExFlow(ExFlow{
 			reason: reason,
 			errMsg: err.Error(),

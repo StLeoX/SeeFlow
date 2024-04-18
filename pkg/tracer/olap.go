@@ -22,7 +22,6 @@ type Olap struct {
 	muSpanCount  sync.Mutex
 
 	// 异常流量列表，目前认为异常概率小
-	// todo dump ExFlows to file
 	arrExL34  []ExFlow
 	muExL34   sync.Mutex
 	arrExL7   []ExFlow
@@ -121,25 +120,25 @@ func (o *Olap) SummaryExFlows() {
 	}
 
 	if len(o.arrExL34) != 0 {
-		logrus.Info("Seeflow found exceptional l34 flows: ")
-		for ef := range o.arrExL34 {
-			logrus.Infof("%v", ef)
+		logrus.Infof("Seeflow found exceptional l34 flows, goto %s", config.PathExL34)
+		for _, ef := range o.arrExL34 {
+			config.Log4ExL34.Infof("%v", ef)
 		}
 	}
 	o.muExL34.Unlock()
 
 	if len(o.arrExL7) != 0 {
-		logrus.Info("Seeflow found exceptional l7 flows: ")
-		for ef := range o.arrExL7 {
-			logrus.Infof("%v", ef)
+		logrus.Infof("Seeflow found exceptional l7 flows, goto %s", config.PathExL7)
+		for _, ef := range o.arrExL7 {
+			config.Log4ExL7.Infof("%v", ef)
 		}
 	}
 	o.muExL7.Unlock()
 
 	if len(o.arrExSock) != 0 {
-		logrus.Info("Seeflow found exceptional sock flows: ")
-		for ef := range o.arrExSock {
-			logrus.Infof("%v", ef)
+		logrus.Infof("Seeflow found exceptional sock flows, goto %s", config.PathExSock)
+		for _, ef := range o.arrExSock {
+			config.Log4ExSock.Infof("%v", ef)
 		}
 	}
 	o.muExSock.Unlock()
