@@ -175,7 +175,7 @@ func handleFlows(ctx context.Context, hubble observerpb.ObserverClient, req *obs
 	// mark: defer-point of observe cmd
 	defer func() {
 		tm.Flush()
-		tm.Assemble()
+		tm.AssembleAll()
 		tm.Summary()
 	}()
 
@@ -215,11 +215,9 @@ func New(vp *viper.Viper) *cobra.Command {
 
 			// init tracerManager
 			tracerManager := pkgtracer.NewTracerManager(vp)
-
-			// init exporter
+			shutdown, _ := tracerManager.InitDummyExporter()
 			//shutdown, _ := tracerManager.InitGRPCExporter(tracerManager.ShutdownCtx)
 			//shutdown, _ := tracerManager.InitStdoutExporter()
-			shutdown, _ := tracerManager.InitDummyExporter()
 
 			defer func() {
 				if err := shutdown(tracerManager.ShutdownCtx); err != nil {

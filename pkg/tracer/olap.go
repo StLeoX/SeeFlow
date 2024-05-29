@@ -4,7 +4,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"github.com/stleox/seeflow/pkg/bgtask"
 	"github.com/stleox/seeflow/pkg/config"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"sync"
@@ -28,6 +27,9 @@ type Olap struct {
 	muExL7    sync.Mutex
 	arrExSock []ExFlow
 	muExSock  sync.Mutex
+
+	// 活跃 namespace 列表，通过 Hubble 更新
+	ActiveNamespaces []string
 }
 
 func NewOlap(vp *viper.Viper) *Olap {
@@ -87,7 +89,7 @@ func NewOlap(vp *viper.Viper) *Olap {
 	}
 
 	// 新建 t_Ep
-	err = bgtask.CreateEndpointTable(db)
+	err = CreateEndpointTable(db)
 	if err != nil {
 		logrus.WithError(err).Error("SeeFlow couldn't create t_Ep")
 		return nil
@@ -106,13 +108,17 @@ func NewOlap(vp *viper.Viper) *Olap {
 	}
 }
 
+func (o *Olap) Conn() sqlx.SqlConn {
+	return o.conn
+}
+
 func (o *Olap) SummaryExFlows() {
 	o.muExL34.Lock()
 	o.muExL7.Lock()
 	o.muExSock.Lock()
 
 	if len(o.arrExL34) == 0 && len(o.arrExL7) == 0 && len(o.arrExSock) == 0 {
-		logrus.Info("Seeflow not found exceptional flows")
+		logrus.Info("Seeflow didn't find exceptional flows")
 		o.muExL34.Unlock()
 		o.muExL7.Unlock()
 		o.muExSock.Unlock()
@@ -122,7 +128,7 @@ func (o *Olap) SummaryExFlows() {
 	if len(o.arrExL34) != 0 {
 		logrus.Infof("Seeflow found exceptional l34 flows, goto %s", config.PathExL34)
 		for _, ef := range o.arrExL34 {
-			config.Log4ExL34.Infof("%v", ef)
+			config.Log4ExL34.Info(ef)
 		}
 	}
 	o.muExL34.Unlock()
@@ -130,7 +136,7 @@ func (o *Olap) SummaryExFlows() {
 	if len(o.arrExL7) != 0 {
 		logrus.Infof("Seeflow found exceptional l7 flows, goto %s", config.PathExL7)
 		for _, ef := range o.arrExL7 {
-			config.Log4ExL7.Infof("%v", ef)
+			config.Log4ExL7.Info(ef)
 		}
 	}
 	o.muExL7.Unlock()
@@ -138,7 +144,7 @@ func (o *Olap) SummaryExFlows() {
 	if len(o.arrExSock) != 0 {
 		logrus.Infof("Seeflow found exceptional sock flows, goto %s", config.PathExSock)
 		for _, ef := range o.arrExSock {
-			config.Log4ExSock.Infof("%v", ef)
+			config.Log4ExSock.Info(ef)
 		}
 	}
 	o.muExSock.Unlock()
@@ -155,4 +161,19 @@ func (o *Olap) RemoveSpanCount(namespace string) {
 	o.muSpanCount.Lock()
 	defer o.muSpanCount.Unlock()
 	delete(o.mapSpanCount, namespace)
+}
+
+func CreateEndpointTable(db sqlx.SqlConn) error {
+	_, err := db.Exec(
+		"CREATE TABLE IF NOT EXISTS `t_Ep` " +
+			"(namespace VARCHAR(127), " +
+			"pod_name VARCHAR(127), " +
+			"svc_name VARCHAR(127), " +
+			"endpoint BIGINT, " +
+			"identity VARCHAR(127), " +
+			"state VARCHAR(15), " +
+			"ip VARCHAR(15)) " +
+			"DISTRIBUTED BY HASH(endpoint) BUCKETS 32 " +
+			"PROPERTIES (\"replication_num\" = \"1\");")
+	return err
 }

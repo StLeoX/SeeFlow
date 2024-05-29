@@ -10,7 +10,7 @@ import (
 )
 
 // TraceID 选用首个非空字段，优先级顺序：`x-client-trace-ID`(128 bits) > `X-B3-Traceid`(64 bits)
-// 测试数据中可能 response 没有 TraceID
+// 数据可能缺少 TraceID 字段，返回空
 func extractTraceID(flow *observerpb.Flow) (string, error) {
 	headers := flow.L7.GetHttp().Headers
 	for i := 0; i < len(headers); i++ {
@@ -19,7 +19,16 @@ func extractTraceID(flow *observerpb.Flow) (string, error) {
 			return headers[i].Value, nil
 		}
 	}
-	return "", fmt.Errorf("no field like TraceID in HTTP headers")
+	return "", fmt.Errorf("flow#%s doesn't have TraceID in HTTP headers", flow.Uuid)
+}
+
+// 返回空 ID，比如在 WG 中作为键，并且不检查
+func extractTraceIDOrZero(flow *observerpb.Flow) (string, error) {
+	traceID, err := extractTraceID(flow)
+	if traceID == "" {
+		return tr.TraceID{}.String(), nil
+	}
+	return traceID, err
 }
 
 // convert to UUID32

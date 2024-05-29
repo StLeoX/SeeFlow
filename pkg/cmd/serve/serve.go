@@ -7,8 +7,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	pkgbgtask "github.com/stleox/seeflow/pkg/bgtask"
 	"github.com/stleox/seeflow/pkg/cmd/common"
-	"github.com/stleox/seeflow/pkg/config"
+	common2 "github.com/stleox/seeflow/pkg/config"
 	pkgtracer "github.com/stleox/seeflow/pkg/tracer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,7 +23,7 @@ import (
 // 在 observe 下，直接构造请求
 func getFlowsRequest() *observerpb.GetFlowsRequest {
 	now := time.Now()
-	since := timestamppb.New(now.Add(-config.GetFlowsInterval))
+	since := timestamppb.New(now.Add(-common2.GetFlowsInterval))
 	until := timestamppb.New(now)
 	req := &observerpb.GetFlowsRequest{
 		Blacklist: common.ConstructBlockList(),
@@ -70,25 +71,9 @@ func New(vp *viper.Viper) *cobra.Command {
 		Use:   "serve",
 		Short: "Observe flows and assemble traces periodically",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// init main context
+			// init main context of `serve`
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 			defer cancel()
-
-			// init bgTaskManager
-
-			// init tracerManager
-			tracerManager := pkgtracer.NewTracerManager(vp)
-
-			// init exporter
-			//shutdown, _ := tracerManager.InitGRPCExporter(tracerManager.ShutdownCtx)
-			//shutdown, _ := tracerManager.InitStdoutExporter()
-			shutdown, _ := tracerManager.InitDummyExporter()
-
-			defer func() {
-				if err := shutdown(tracerManager.ShutdownCtx); err != nil {
-					logrus.Error(err)
-				}
-			}()
 
 			// init gRPC
 			hubble, cleanup, err := common.GetHubbleClient(ctx, vp)
@@ -101,11 +86,24 @@ func New(vp *viper.Viper) *cobra.Command {
 				}
 			}()
 
-			// construct request
-			req := getFlowsRequest()
-			logrus.WithField("request", req).Debug("SeeFlow sent GetFlows request")
+			// init tracerManager
+			tracerManager := pkgtracer.NewTracerManager(vp)
+			//shutdown, _ := tracerManager.InitGRPCExporter(tracerManager.ShutdownCtx)
+			//shutdown, _ := tracerManager.InitStdoutExporter()
+			shutdown, _ := tracerManager.InitDummyExporter()
+			defer func() {
+				if err := shutdown(tracerManager.ShutdownCtx); err != nil {
+					logrus.Error(err)
+				}
+			}()
+
+			// init bgTaskManager
+			bgTaskManager := pkgbgtask.NewBgTaskManager(hubble, tracerManager.Olap())
+			bgTaskManager.StartAll()
 
 			// handle flows
+			req := getFlowsRequest()
+			logrus.WithField("request", req).Debug("SeeFlow sent GetFlows request")
 			if err := handleFlows(ctx, hubble, req, tracerManager); err != nil {
 				msg := err.Error()
 				// extract custom error message from failed grpc call

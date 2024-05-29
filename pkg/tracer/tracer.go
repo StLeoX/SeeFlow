@@ -8,9 +8,6 @@ type Tracer struct {
 	// back link to manager
 	manager *TracerManager
 
-	// identifier number
-	number int
-
 	// TraceID
 	traceID string
 

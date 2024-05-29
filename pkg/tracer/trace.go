@@ -2,6 +2,7 @@ package tracer
 
 import (
 	"context"
+	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stleox/seeflow/pkg/config"
 	attr "go.opentelemetry.io/otel/attribute"
@@ -17,20 +18,25 @@ type PostSpan struct {
 	spanID  tr.SpanID
 }
 
-func (t *Tracer) Assemble(amCtx context.Context) error {
-	// todo: 策略模式
-	// todo set the checkpoint for Assemble
-	logrus.Debugf("call BasicAssemble() from #%d", t.number)
-	return t.BasicAssemble(amCtx)
+const (
+	kAssemble_Unknown = iota
+	kAssemble_BasicAssemble
+)
+
+func (t *Tracer) Assemble(kind int, amCtx context.Context) error {
+	switch kind {
+	case kAssemble_BasicAssemble:
+		logrus.Debugf("call BasicAssemble() from tracer#%s", t.traceID)
+		return t.BasicAssemble(amCtx)
+	default:
+		return fmt.Errorf("unknown Assemble strategy")
+	}
 }
 
 // BasicAssemble
 // 离线算法，输入完备的 Span 数据。
 // 返回 trace，返回的是该 Trace 的根 Span，提供给测试。
 func (t *Tracer) BasicAssemble(amCtx context.Context) error {
-	// 从 olap 拉取 span 到 t.bufPreSpan，已按 StartTime 升序排序
-	t.manager.olap.SelectL7Spans(&t.bufPreSpan, t.traceID)
-
 	if len(t.bufPreSpan) == 0 {
 		return nil
 	}

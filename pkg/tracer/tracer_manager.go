@@ -19,10 +19,17 @@ type TracerManager struct {
 	// cache: TraceID -> Tracer
 	tracers *lru.Cache[string, *Tracer]
 
+	// set of active TraceIDs
+	setActiveTraceID map[string]bool
+	muActiveTraceID  sync.Mutex
+
 	// cache: SpanID -> flow
 	bufFlow *lru.Cache[string, *observerpb.Flow]
 
-	wgL7Consume sync.WaitGroup
+	// 每一个 TraceID 上有一个 WG 做同步，保证写数据库的操作完成。
+	// todo map 改成 lru
+	// map: TraceID -> WG
+	mapWgL7Consume map[string]sync.WaitGroup
 
 	ShutdownCtx context.Context
 
@@ -35,7 +42,9 @@ func NewTracerManager(vp *viper.Viper) *TracerManager {
 	var tm TracerManager
 	tm.ShutdownCtx = context.Background()
 	tm.tracers, _ = lru.New[string, *Tracer](config.MaxNumTracer)
+	tm.setActiveTraceID = make(map[string]bool, 0)
 	tm.bufFlow, _ = lru.New[string, *observerpb.Flow](config.MaxNumFlow)
+	tm.mapWgL7Consume = make(map[string]sync.WaitGroup, 0)
 
 	if vp == nil {
 		tm.olap = nil // under testing
@@ -46,16 +55,23 @@ func NewTracerManager(vp *viper.Viper) *TracerManager {
 	return &tm
 }
 
+func (tm *TracerManager) Olap() *Olap {
+	if tm.olap == nil {
+		logrus.Error("SeeFlow couldn't use nil olap")
+		return nil
+	}
+	return tm.olap
+}
+
 func (tm *TracerManager) newTracer(traceID string) *Tracer {
 	var a Tracer
 	a.manager = tm
-	a.number = int(tm.numTracer.Load())
 	tm.numTracer.Add(1)
 	a.traceID = traceID
 	a.bufPreSpan = make([]*PreSpan, 0)
 	a.mapService = make(map[uint32]*PostSpan, 0)
 
-	a.tracer = tm.tracerProvider.Tracer(fmt.Sprintf("tracer#%d", a.number))
+	a.tracer = tm.tracerProvider.Tracer(fmt.Sprintf("tracer#%d", a.traceID))
 
 	a.debMapTraceID = make(map[string]string, 0)
 	a.debMapSpanID = make(map[string]string, 0)
@@ -65,13 +81,12 @@ func (tm *TracerManager) newTracer(traceID string) *Tracer {
 	// 淘汰之前肯定是要聚合的
 	if tm.tracers.Len() == config.MaxNumTracer {
 		_, evict, _ := tm.tracers.RemoveOldest()
-		err := evict.Assemble(tm.ShutdownCtx)
+		err := evict.Assemble(kAssemble_BasicAssemble, tm.ShutdownCtx)
 		if err != nil {
-			logrus.Error(err)
+			logrus.Warn(err)
 		}
 	}
 
-	logrus.Debugf("add new tracer#%d for trace: %s", a.number, traceID)
 	return &a
 }
 
@@ -101,20 +116,36 @@ func (tm *TracerManager) ConsumeFlow(flow *observerpb.Flow) {
 
 // These hooked on defer-point of observe cmd:
 
-func (tm *TracerManager) Assemble() {
-	// todo: 设计聚集的触发。目前是接收到全体 flow，并对全体 trace 聚合。
-	tm.wgL7Consume.Wait()
+func (tm *TracerManager) AssembleAll() {
+	for at := range tm.setActiveTraceID {
+		tm.Assemble(at)
+	}
+	// tm.setActiveTraceID.clear()
 
-	for _, a := range tm.tracers.Values() {
-		// 验证收集结果
-		logrus.Debugf("tracer#%d collected spans: %d", a.number, a.numSpan)
-		err := a.Assemble(tm.ShutdownCtx)
-		if err != nil {
-			logrus.Error(err)
-		}
-		tm.tracers.Remove(a.traceID)
+}
+
+// 状态机控制在更加上层
+func (tm *TracerManager) Assemble(traceID string) {
+	// 不接受无效（空）TraceID。
+	if !convertTraceID(traceID).IsValid() {
+		return
 	}
 
+	wg, hit := tm.mapWgL7Consume[traceID]
+	if !hit {
+		// 不存在这个 WG，说明该 TraceID 下没消费过 Span。
+		return
+	}
+	wg.Wait()
+
+	t := tm.newTracer(traceID)
+	// 直接从数据库拉取 span 到 t.bufPreSpan
+	// 已按 StartTime 字段升序排序
+	tm.olap.SelectL7Spans(&t.bufPreSpan, t.traceID)
+	err := t.Assemble(kAssemble_BasicAssemble, tm.ShutdownCtx)
+	if err != nil {
+		logrus.Warn(err)
+	}
 }
 
 func (tm *TracerManager) Flush() {
@@ -126,7 +157,7 @@ func (tm *TracerManager) Flush() {
 func (tm *TracerManager) Summary() {
 	// 日志异常流量
 	tm.olap.SummaryExFlows()
-	// 日志插入数量，省略掉
+	// 日志插入数量（todo）
 }
 
 func (tm *TracerManager) CheckSpansCount(trace_id string) bool {

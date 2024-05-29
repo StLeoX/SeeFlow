@@ -63,6 +63,7 @@ func (l *L7Flow) Build(flow *observerpb.Flow) error {
 			spanReq, spanResp = hitFlow, flow
 		}
 
+		// TraceID 只存在于请求当中。
 		traceID, err := extractTraceID(spanReq)
 		if err != nil {
 			return err
@@ -75,13 +76,17 @@ func (l *L7Flow) Build(flow *observerpb.Flow) error {
 			SrcPod:       extractPodName(spanReq.Source),
 			DestIdentity: spanReq.Destination.Identity,
 			DestPod:      extractPodName(spanReq.Destination),
-			StartTime:    spanReq.Time.AsTime(),
+			// fixme: StartTime 好像是 envoy 接收到 src_pod 请求的时间，所以 pod 内部构造请求的事件时间会更早
+			StartTime: spanReq.Time.AsTime(),
 			// fixme: EndTime 是否涉及到 latencyNs 字段
 			EndTime: spanResp.Time.AsTime(),
 		}
 
 		// 命中后清除
 		l7FlowLRU.Remove(xreqID)
+
+		// 标记为活跃（暂时不标记 broken span）
+		l.tm.setActiveTraceID[traceID] = true
 
 		return nil
 	}
@@ -161,43 +166,41 @@ func (l *L7Flow) MarkExFlow(exFlow ExFlow) {
 
 }
 
+// Consume 异步处理，且需要 WG 同步
 func (l *L7Flow) Consume(flow *flowpb.Flow) {
-	// 异步处理，且需要 WG 同步
-	l.tm.wgL7Consume.Add(1)
-	go func() {
-		defer l.tm.wgL7Consume.Done()
+	// 首先检查，保证是轻量的
+	err := l.Check(flow)
+	if err != nil {
+		l.MarkExFlow(ExFlow{kExL7Broken, err.Error(), flow})
+		return
+	}
 
-		var reason int
-		var err error
-		// 首先检查
-		err = l.Check(flow)
-		if err != nil {
-			reason = kExL7Broken
-			goto eReturn
-		}
+	// 拿到主键
+	traceID, err := extractTraceIDOrZero(flow)
+	if err != nil {
+		l.MarkExFlow(ExFlow{kExL7Broken, err.Error(), flow})
+		return
+	}
+
+	wg, _ := l.tm.mapWgL7Consume[traceID]
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
 
 		// 然后构建
 		err = l.Build(flow)
 		if err != nil {
-			reason = kExL7Broken
-			goto eReturn
+			l.MarkExFlow(ExFlow{kExL7Broken, err.Error(), flow})
+			return
 		}
 
 		// 最后插入
 		err = l.Insert()
 		if err != nil {
-			reason = kExL7NotInserted
-			goto eReturn
+			l.MarkExFlow(ExFlow{kExL7NotInserted, err.Error(), flow})
+			return
 		}
-
-		return
-
-	eReturn:
-		l.MarkExFlow(ExFlow{
-			reason: reason,
-			errMsg: err.Error(),
-			flow:   flow,
-		})
 
 	}()
 
