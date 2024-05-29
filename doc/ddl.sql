@@ -25,6 +25,17 @@ CREATE TABLE IF NOT EXISTS `t_L7`
 ) DISTRIBUTED BY HASH(src_identity, dest_identity) BUCKETS 32
     PROPERTIES ("replication_num" = "1");
 
+CREATE TABLE IF NOT EXISTS `t_Sock`
+(
+    time          DATETIME(6),
+    namespace     VARCHAR(127),
+    src_identity  BIGINT,
+    dest_identity BIGINT,
+    event_type    TINYINT,
+    sub_type      TINYINT,
+    cgroup_id     INT
+) DISTRIBUTED BY HASH(src_identity, dest_identity) BUCKETS 32
+    PROPERTIES ("replication_num" = "1");
 
 CREATE TABLE IF NOT EXISTS `t_Ep`
 (
